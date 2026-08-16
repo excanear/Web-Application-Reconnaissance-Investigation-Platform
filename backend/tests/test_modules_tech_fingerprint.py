@@ -82,6 +82,57 @@ def test_path_probe_rule_detects_version_from_known_file():
     assert finding.data["version"] == "6.4.2"
 
 
+def test_html_regex_rule_detects_frontend_framework_and_version():
+    base = _response(text='<html ng-version="17.0.2"><body>hi</body></html>')
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run("example.com", {})
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["Angular"].data["category"] == "frontend"
+    assert by_name["Angular"].data["version"] == "17.0.2"
+    assert by_name["Angular"].data["source"] == "html_regex"
+
+
+def test_html_regex_rule_detects_framework_without_version():
+    base = _response(text='<div id="root" data-reactroot=""></div>')
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run("example.com", {})
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["React"].data["version"] is None
+    assert by_name["React"].data["confidence"] == "medium"
+
+
+def test_header_rule_detects_cdn_by_header_presence_without_version():
+    base = _response(headers={"Server": "cloudflare"})
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run("example.com", {})
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["Cloudflare"].data["category"] == "cdn_waf"
+
+
 def test_unreachable_host_is_skipped_without_crashing():
     import requests
 

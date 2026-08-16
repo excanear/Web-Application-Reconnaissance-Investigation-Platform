@@ -1,9 +1,25 @@
+from contextlib import ExitStack
 from unittest.mock import patch
 
 from app.db import Base, engine, SessionLocal
 from app import models
 from app.modules.base import Finding, MODULE_REGISTRY, ReconModule, register_module
 from app.orchestrator import run_scan
+
+
+def _mock_all_modules(overrides: dict | None = None, exclude: set | None = None) -> ExitStack:
+    """Patches every registered module's .run to return [] by default, so
+    tests stay deterministic and network-free as new modules get added --
+    pass overrides={"module_name": [...]} to control specific ones, or
+    exclude={"module_name"} to leave a module (e.g. a test-only fake) real."""
+    overrides = overrides or {}
+    exclude = exclude or set()
+    stack = ExitStack()
+    for name, cls in MODULE_REGISTRY.items():
+        if name in exclude:
+            continue
+        stack.enter_context(patch.object(cls, "run", return_value=overrides.get(name, [])))
+    return stack
 
 
 def _create_authorized_project_and_scan():
@@ -30,15 +46,12 @@ def test_run_scan_persists_findings_and_marks_scan_complete():
     Base.metadata.create_all(bind=engine)
     scan_id = _create_authorized_project_and_scan()
 
-    with patch(
-        "app.modules.subfinder.SubfinderModule.run",
-        return_value=[Finding("subdomain", "a.example.com")],
-    ), patch("app.modules.crtsh.CrtShModule.run", return_value=[]), patch(
-        "app.modules.whois_module.WhoisModule.run",
-        return_value=[Finding("whois", "example.com")],
-    ), patch(
-        "app.modules.httpx_probe.HttpxProbeModule.run",
-        return_value=[Finding("live_host", "https://a.example.com")],
+    with _mock_all_modules(
+        {
+            "subfinder": [Finding("subdomain", "a.example.com")],
+            "whois": [Finding("whois", "example.com")],
+            "httpx_probe": [Finding("live_host", "https://a.example.com")],
+        }
     ):
         run_scan(scan_id)
 
@@ -77,19 +90,14 @@ def _create_unauthorized_project_and_scan():
 def test_run_scan_fails_without_running_modules_when_project_not_authorized():
     scan_id = _create_unauthorized_project_and_scan()
 
-    with patch("app.modules.subfinder.SubfinderModule.run") as mock_subfinder, patch(
-        "app.modules.crtsh.CrtShModule.run"
-    ) as mock_crtsh, patch(
-        "app.modules.whois_module.WhoisModule.run"
-    ) as mock_whois, patch(
-        "app.modules.httpx_probe.HttpxProbeModule.run"
-    ) as mock_httpx:
+    with ExitStack() as stack:
+        mocks = {
+            name: stack.enter_context(patch.object(cls, "run", return_value=[]))
+            for name, cls in MODULE_REGISTRY.items()
+        }
         run_scan(scan_id)
-
-    mock_subfinder.assert_not_called()
-    mock_crtsh.assert_not_called()
-    mock_whois.assert_not_called()
-    mock_httpx.assert_not_called()
+        for mock in mocks.values():
+            mock.assert_not_called()
 
     db = SessionLocal()
     try:
@@ -103,18 +111,17 @@ def test_run_scan_fails_without_running_modules_when_project_not_authorized():
 def test_run_scan_isolates_a_failing_module_and_keeps_going():
     scan_id = _create_authorized_project_and_scan()
 
-    with patch(
-        "app.modules.subfinder.SubfinderModule.run", side_effect=RuntimeError("boom")
-    ), patch(
-        "app.modules.crtsh.CrtShModule.run",
-        return_value=[Finding("subdomain", "a.example.com")],
-    ), patch(
-        "app.modules.whois_module.WhoisModule.run",
-        return_value=[Finding("whois", "example.com")],
-    ), patch(
-        "app.modules.httpx_probe.HttpxProbeModule.run",
-        return_value=[Finding("live_host", "https://a.example.com")],
-    ):
+    with ExitStack() as stack:
+        for name, cls in MODULE_REGISTRY.items():
+            if name == "subfinder":
+                stack.enter_context(patch.object(cls, "run", side_effect=RuntimeError("boom")))
+            else:
+                overrides = {
+                    "crtsh": [Finding("subdomain", "a.example.com")],
+                    "whois": [Finding("whois", "example.com")],
+                    "httpx_probe": [Finding("live_host", "https://a.example.com")],
+                }
+                stack.enter_context(patch.object(cls, "run", return_value=overrides.get(name, [])))
         run_scan(scan_id)
 
     db = SessionLocal()
@@ -161,11 +168,7 @@ def test_run_scan_threads_technologies_from_earlier_to_later_modules_by_run_orde
         register_module(_EarlyTechModule)
         register_module(_LateCorrelationModule)
 
-        with patch("app.modules.subfinder.SubfinderModule.run", return_value=[]), patch(
-            "app.modules.crtsh.CrtShModule.run", return_value=[]
-        ), patch("app.modules.whois_module.WhoisModule.run", return_value=[]), patch(
-            "app.modules.httpx_probe.HttpxProbeModule.run", return_value=[]
-        ):
+        with _mock_all_modules(exclude={_EarlyTechModule.name, _LateCorrelationModule.name}):
             run_scan(scan_id)
     finally:
         del MODULE_REGISTRY[_EarlyTechModule.name]

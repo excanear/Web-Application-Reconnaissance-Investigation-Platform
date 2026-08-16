@@ -5,9 +5,11 @@ import requests
 from app.modules.base import Finding, ReconModule, register_module
 
 # Seed ruleset -- extensible without touching the engine below. Each rule:
-# category, name, match_type (header/cookie/meta_generator/path_probe),
-# and a pattern whose first capture group (if any) is the version.
+# category, name, match_type (header/cookie/meta_generator/html_regex/
+# path_probe), and a pattern whose first capture group (if any) is the
+# version. Presence-only rules (no version ever exposed) use pattern r".+".
 FINGERPRINT_RULES = [
+    # -- Web servers --
     {
         "category": "web_server",
         "name": "nginx",
@@ -23,6 +25,57 @@ FINGERPRINT_RULES = [
         "pattern": r"Apache/?([\d.]+)?",
     },
     {
+        "category": "web_server",
+        "name": "Microsoft-IIS",
+        "match_type": "header",
+        "header": "Server",
+        "pattern": r"Microsoft-IIS/?([\d.]+)?",
+    },
+    {
+        "category": "web_server",
+        "name": "Tomcat",
+        "match_type": "header",
+        "header": "Server",
+        "pattern": r"(?:Apache-Coyote|Tomcat)/?([\d.]+)?",
+    },
+    # -- CDN / WAF --
+    {
+        "category": "cdn_waf",
+        "name": "Cloudflare",
+        "match_type": "header",
+        "header": "Server",
+        "pattern": r"cloudflare",
+    },
+    {
+        "category": "cdn_waf",
+        "name": "Akamai",
+        "match_type": "header",
+        "header": "Server",
+        "pattern": r"AkamaiGHost",
+    },
+    {
+        "category": "cdn_waf",
+        "name": "Varnish",
+        "match_type": "header",
+        "header": "Via",
+        "pattern": r"varnish",
+    },
+    {
+        "category": "cdn_waf",
+        "name": "AWS CloudFront",
+        "match_type": "header",
+        "header": "Via",
+        "pattern": r"CloudFront",
+    },
+    {
+        "category": "cdn_waf",
+        "name": "Fastly",
+        "match_type": "header",
+        "header": "X-Served-By",
+        "pattern": r".+",
+    },
+    # -- Backend language / framework --
+    {
         "category": "backend",
         "name": "PHP",
         "match_type": "header",
@@ -36,8 +89,32 @@ FINGERPRINT_RULES = [
         "header": "X-AspNet-Version",
         "pattern": r"([\d.]+)",
     },
+    {
+        "category": "backend",
+        "name": "Express",
+        "match_type": "header",
+        "header": "X-Powered-By",
+        "pattern": r"Express",
+    },
+    {
+        "category": "backend",
+        "name": "Werkzeug/Flask",
+        "match_type": "header",
+        "header": "Server",
+        "pattern": r"Werkzeug/?([\d.]+)?",
+    },
+    {
+        "category": "backend",
+        "name": "Ruby on Rails",
+        "match_type": "header",
+        "header": "X-Runtime",
+        "pattern": r".+",
+    },
     {"category": "backend", "name": "PHP", "match_type": "cookie", "cookie": "PHPSESSID"},
     {"category": "backend", "name": "Java", "match_type": "cookie", "cookie": "JSESSIONID"},
+    {"category": "backend", "name": "Laravel", "match_type": "cookie", "cookie": "laravel_session"},
+    {"category": "backend", "name": "Django", "match_type": "cookie", "cookie": "csrftoken"},
+    # -- CMS --
     {
         "category": "cms",
         "name": "WordPress",
@@ -50,6 +127,62 @@ FINGERPRINT_RULES = [
         "match_type": "path_probe",
         "path": "/CHANGELOG.txt",
         "pattern": r"Version\s+([\d.]+)",
+    },
+    {
+        "category": "cms",
+        "name": "Drupal",
+        "match_type": "meta_generator",
+        "pattern": r"Drupal\s*([\d.]+)?",
+    },
+    {
+        "category": "cms",
+        "name": "Joomla",
+        "match_type": "meta_generator",
+        "pattern": r"Joomla!?\s*([\d.]+)?",
+    },
+    {
+        "category": "cms",
+        "name": "Shopify",
+        "match_type": "header",
+        "header": "X-Shopify-Stage",
+        "pattern": r".+",
+    },
+    # -- Frontend / JS frameworks (body content) --
+    {
+        "category": "frontend",
+        "name": "Angular",
+        "match_type": "html_regex",
+        "pattern": r'ng-version="([\d.]+)"',
+    },
+    {
+        "category": "frontend",
+        "name": "React",
+        "match_type": "html_regex",
+        "pattern": r"data-reactroot|react-dom",
+    },
+    {
+        "category": "frontend",
+        "name": "Vue.js",
+        "match_type": "html_regex",
+        "pattern": r"data-v-app|__vue__|Vue\.js",
+    },
+    {
+        "category": "frontend",
+        "name": "Next.js",
+        "match_type": "html_regex",
+        "pattern": r"__NEXT_DATA__",
+    },
+    {
+        "category": "frontend",
+        "name": "jQuery",
+        "match_type": "html_regex",
+        "pattern": r"jquery[.-]?([\d.]+)?(?:\.min)?\.js",
+    },
+    {
+        "category": "frontend",
+        "name": "Bootstrap",
+        "match_type": "html_regex",
+        "pattern": r"bootstrap[.-]?([\d.]+)?(?:\.min)?\.(?:css|js)",
     },
 ]
 
@@ -105,6 +238,12 @@ class TechFingerprintModule(ReconModule):
             if not match:
                 return None
             return self._finding(host, rule, match, source="meta_generator")
+
+        if rule["match_type"] == "html_regex":
+            match = re.search(rule["pattern"], response.text, re.IGNORECASE)
+            if not match:
+                return None
+            return self._finding(host, rule, match, source="html_regex")
 
         if rule["match_type"] == "path_probe":
             try:
