@@ -133,19 +133,40 @@ aparecer, você está na pasta errada — ajuste o `cd`.
 *(macOS/Linux: mesma ideia, só troca `dir` por `ls` e o `\` por `/` no
 caminho.)*
 
-### Passo 4 — Instalar as dependências Python
+### Passo 4 — Criar um ambiente virtual e instalar as dependências
+
+Um ambiente virtual (`venv`) isola os pacotes desta ferramenta do resto
+do seu sistema — evita conflito de versões e, no Linux/macOS mais
+recentes, é **obrigatório** (o Python do sistema recusa instalar pacotes
+direto, veja [`externally-managed-environment`](#error-externally-managed-environment)
+em Problemas comuns se pular este passo e der erro).
 
 ```powershell
+# Windows (PowerShell)
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
+
+```bash
+# macOS/Linux
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Como saber se o ambiente virtual está ativo:** o início da linha do
+terminal passa a mostrar `(venv)` antes do resto do prompt. Enquanto
+`(venv)` estiver ali, `python` e `pip` apontam pro ambiente isolado — é
+assim que deve ficar toda vez que for usar a ferramenta (se fechar o
+terminal, repita só o passo de ativar: `.\venv\Scripts\Activate.ps1` ou
+`source venv/bin/activate`, não precisa recriar o venv).
 
 Isso baixa e instala: `sqlalchemy`, `typer`, `rich`, `requests`,
 `python-whois`, `python-dotenv`, `pytest`. Leva menos de um minuto.
 
 **Como saber se deu certo:** a última linha do terminal deve ser algo como
-`Successfully installed ...` listando os pacotes. Se em vez disso
-aparecer `'pip' não é reconhecido`, tente `python -m pip install -r
-requirements.txt` (troca `pip` por `python -m pip`).
+`Successfully installed ...` listando os pacotes.
 
 ### Passo 5 — Rodar o primeiro scan
 
@@ -258,21 +279,55 @@ uns 2 minutos sem nenhuma linha nova, aí sim pode ser um alvo com muitos
 subdomínios ou uma rede lenta; aguarde mais um pouco antes de interromper
 com `Ctrl+C`.
 
-### Erro de permissão / `pip install` falha
+### `error: externally-managed-environment`
 
-Tente instalar num ambiente virtual, isolado do resto do seu sistema:
+```text
+error: externally-managed-environment
 
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+× This environment is externally managed
+╰─> To install Python packages system-wide, try apt install
+    python3-xyz, where xyz is the package you are trying to
+    install...
+```
+
+Isso acontece quando você tenta `pip install` **fora** de um ambiente
+virtual, num Python instalado pelo gerenciador de pacotes do sistema
+(comum em Ubuntu/Debian recentes e em Python instalado via Homebrew no
+macOS). O Python se recusa a instalar pacotes direto no sistema pra não
+quebrar outras ferramentas que dependem dele.
+
+**A correção é o [Passo 4](#passo-4--criar-um-ambiente-virtual-e-instalar-as-dependências):**
+crie e ative um ambiente virtual antes de rodar `pip install`:
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Se o `Activate.ps1` também for bloqueado, aplique a mesma correção da
-seção [PowerShell recusa rodar um script](#powershell-recusa-rodar-um-script-ps1)
-acima antes de tentar de novo.
+Confirme que `(venv)` apareceu no início da linha do terminal antes de
+instalar — é isso que indica que o ambiente virtual está ativo e que o
+`pip install` vai parar de reclamar.
 
-*(macOS/Linux: `python -m venv venv` e depois `source venv/bin/activate`.)*
+> Existe um jeito de forçar a instalação sem ambiente virtual
+> (`pip install --break-system-packages -r requirements.txt`), mas ele
+> tem esse nome por um motivo — pode quebrar outras ferramentas Python
+> do seu sistema. Use o ambiente virtual; leva 10 segundos a mais e evita
+> esse risco.
+
+### Erro de permissão ao instalar dependências
+
+Se `pip install` falhar por permissão mesmo dentro do ambiente virtual
+ativado (raro, mas acontece se o próprio `venv` foi criado numa pasta sem
+permissão de escrita), apague a pasta `venv` e recrie num local onde seu
+usuário tenha permissão total — por exemplo, dentro da sua pasta pessoal
+(`Documentos`, `home`), não em pastas de sistema.
+
+### `'pip' não é reconhecido como um comando`
+
+Com o ambiente virtual ativado (passo 4), isso não deveria acontecer. Se
+acontecer mesmo assim, troque `pip install` por
+`python -m pip install` (ou `python3 -m pip install` no macOS/Linux).
 
 ### Acham `module_error` pra `subfinder` ou `httpx_probe` no relatório
 
