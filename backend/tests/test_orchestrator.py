@@ -54,6 +54,52 @@ def test_run_scan_persists_findings_and_marks_scan_complete():
     assert {f.type for f in findings} == {"subdomain", "whois", "live_host"}
 
 
+def _create_unauthorized_project_and_scan():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Unauthorized Co",
+            target="unauth.com",
+            scope_notes="not authorized",
+            authorized=False,
+        )
+        db.add(project)
+        db.commit()
+
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        return scan.id
+    finally:
+        db.close()
+
+
+def test_run_scan_fails_without_running_modules_when_project_not_authorized():
+    scan_id = _create_unauthorized_project_and_scan()
+
+    with patch("app.orchestrator.SubfinderModule.run") as mock_subfinder, patch(
+        "app.orchestrator.CrtShModule.run"
+    ) as mock_crtsh, patch(
+        "app.orchestrator.WhoisModule.run"
+    ) as mock_whois, patch(
+        "app.orchestrator.HttpxProbeModule.run"
+    ) as mock_httpx:
+        run_scan(scan_id)
+
+    mock_subfinder.assert_not_called()
+    mock_crtsh.assert_not_called()
+    mock_whois.assert_not_called()
+    mock_httpx.assert_not_called()
+
+    db = SessionLocal()
+    try:
+        scan = db.get(models.Scan, scan_id)
+    finally:
+        db.close()
+
+    assert scan.status == "failed"
+
+
 def test_run_scan_marks_scan_failed_on_module_error():
     scan_id = _create_authorized_project_and_scan()
 

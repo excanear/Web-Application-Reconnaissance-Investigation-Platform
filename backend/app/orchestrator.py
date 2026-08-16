@@ -12,6 +12,12 @@ def run_scan(scan_id: int) -> None:
     db = SessionLocal()
     scan = db.get(models.Scan, scan_id)
     try:
+        if not scan.project.authorized:
+            scan.status = "failed"
+            scan.finished_at = datetime.utcnow()
+            db.commit()
+            return
+
         scan.status = "running"
         scan.started_at = datetime.utcnow()
         db.commit()
