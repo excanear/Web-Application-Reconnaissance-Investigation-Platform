@@ -53,8 +53,11 @@ export function getProject(id: number): Promise<Project> {
   return request(`/projects/${id}`);
 }
 
-export function createScan(projectId: number): Promise<Scan> {
-  return request(`/projects/${projectId}/scans`, { method: "POST" });
+export function createScan(projectId: number, confirmActiveModules = false): Promise<Scan> {
+  return request(`/projects/${projectId}/scans`, {
+    method: "POST",
+    body: JSON.stringify({ confirm_active_modules: confirmActiveModules }),
+  });
 }
 
 export function getScan(id: number): Promise<Scan> {

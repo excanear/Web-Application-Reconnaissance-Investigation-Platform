@@ -8,6 +8,7 @@ export function ProjectDetail() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmActiveModules, setConfirmActiveModules] = useState(false);
 
   useEffect(() => {
     getProject(Number(id))
@@ -17,7 +18,7 @@ export function ProjectDetail() {
 
   async function handleNewScan() {
     try {
-      const scan = await createScan(Number(id));
+      const scan = await createScan(Number(id), confirmActiveModules);
       navigate(`/scans/${scan.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -32,7 +33,17 @@ export function ProjectDetail() {
       <h1>{project.name}</h1>
       <p>Alvo: {project.target}</p>
       <p>Escopo: {project.scope_notes}</p>
-      <button onClick={handleNewScan}>Novo scan</button>
+      <label>
+        <input
+          type="checkbox"
+          checked={confirmActiveModules}
+          onChange={(e) => setConfirmActiveModules(e.target.checked)}
+        />
+        Confirmo que este scan inclui modulos ativos (sondagem direta do alvo)
+      </label>
+      <button onClick={handleNewScan} disabled={!confirmActiveModules}>
+        Novo scan
+      </button>
     </div>
   );
 }

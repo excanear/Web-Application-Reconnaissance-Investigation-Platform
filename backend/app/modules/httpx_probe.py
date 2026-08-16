@@ -7,6 +7,7 @@ from app.modules.base import Finding, ReconModule, register_module
 @register_module
 class HttpxProbeModule(ReconModule):
     name = "httpx_probe"
+    is_active = True
 
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = context.get("subdomains", set()) | {target}

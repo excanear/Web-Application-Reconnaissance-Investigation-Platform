@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createProject, listProjects } from "./client";
+import { createProject, createScan, listProjects } from "./client";
 
 describe("api client", () => {
   beforeEach(() => {
@@ -39,5 +39,33 @@ describe("api client", () => {
         authorized: false,
       }),
     ).rejects.toThrow("Request to /projects failed with status 422");
+  });
+
+  it("createScan posts the caller's confirmActiveModules choice in the request body", async () => {
+    const scan = { id: 1, project_id: 1, status: "pending", started_at: null, finished_at: null };
+    (fetch as any).mockResolvedValueOnce({ ok: true, json: async () => scan });
+
+    const result = await createScan(1, true);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/projects/1/scans",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm_active_modules: true }),
+      }),
+    );
+    expect(result).toEqual(scan);
+  });
+
+  it("createScan defaults confirmActiveModules to false when omitted", async () => {
+    const scan = { id: 1, project_id: 1, status: "pending", started_at: null, finished_at: null };
+    (fetch as any).mockResolvedValueOnce({ ok: true, json: async () => scan });
+
+    await createScan(1);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8000/projects/1/scans",
+      expect.objectContaining({ body: JSON.stringify({ confirm_active_modules: false }) }),
+    );
   });
 });

@@ -14,6 +14,9 @@ class ReconModule(ABC):
     # Orchestrator runs modules in ascending run_order, threading context
     # through each: 10=discovery, 50=analysis (default), 90=correlation.
     run_order: int = 50
+    # Active modules send probes/requests straight at the target and
+    # require the scan-level active-modules confirmation to run.
+    is_active: bool = False
 
     @abstractmethod
     def run(self, target: str, context: dict) -> list[Finding]:

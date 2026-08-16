@@ -27,6 +27,20 @@ def test_recon_module_defaults_run_order_to_fifty():
         del MODULE_REGISTRY[_DefaultOrderModule.name]
 
 
+def test_recon_module_defaults_is_active_to_false():
+    class _PassiveModule(ReconModule):
+        name = "_passive_test_module"
+
+        def run(self, target: str, context: dict) -> list[Finding]:
+            return []
+
+    try:
+        register_module(_PassiveModule)
+        assert _PassiveModule.is_active is False
+    finally:
+        del MODULE_REGISTRY[_PassiveModule.name]
+
+
 def test_register_module_adds_class_to_registry_by_name():
     class _FakeModule(ReconModule):
         name = "_fake_test_module"

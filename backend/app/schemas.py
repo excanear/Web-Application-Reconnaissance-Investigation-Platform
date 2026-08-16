@@ -35,6 +35,10 @@ class ProjectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ScanCreate(BaseModel):
+    confirm_active_modules: bool = False
+
+
 class ScanOut(BaseModel):
     id: int
     project_id: int

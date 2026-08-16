@@ -192,6 +192,7 @@ REQUEST_TIMEOUT = 10
 @register_module
 class TechFingerprintModule(ReconModule):
     name = "tech_fingerprint"
+    is_active = True
 
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = context.get("subdomains", set()) | {target}

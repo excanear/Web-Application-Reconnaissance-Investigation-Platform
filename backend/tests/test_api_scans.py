@@ -24,11 +24,35 @@ def test_create_scan_enqueues_task_and_returns_pending_scan():
     project_id = _create_authorized_project()
 
     with patch("app.routers.scans.run_scan_task.delay") as mock_delay:
-        response = client.post(f"/projects/{project_id}/scans")
+        response = client.post(
+            f"/projects/{project_id}/scans", json={"confirm_active_modules": True}
+        )
 
     assert response.status_code == 201
     assert response.json()["status"] == "pending"
     mock_delay.assert_called_once_with(response.json()["id"])
+
+
+def test_create_scan_rejects_active_modules_without_explicit_confirmation():
+    project_id = _create_authorized_project()
+
+    with patch("app.routers.scans.run_scan_task.delay") as mock_delay:
+        response = client.post(f"/projects/{project_id}/scans")
+
+    assert response.status_code == 403
+    mock_delay.assert_not_called()
+
+
+def test_create_scan_rejects_active_modules_when_confirmation_is_explicitly_false():
+    project_id = _create_authorized_project()
+
+    with patch("app.routers.scans.run_scan_task.delay") as mock_delay:
+        response = client.post(
+            f"/projects/{project_id}/scans", json={"confirm_active_modules": False}
+        )
+
+    assert response.status_code == 403
+    mock_delay.assert_not_called()
 
 
 def test_create_scan_rejects_project_not_marked_authorized():
@@ -59,7 +83,9 @@ def test_create_scan_rejects_project_not_marked_authorized():
 def test_get_scan_findings_returns_empty_list_for_new_scan():
     project_id = _create_authorized_project()
     with patch("app.routers.scans.run_scan_task.delay"):
-        response = client.post(f"/projects/{project_id}/scans")
+        response = client.post(
+            f"/projects/{project_id}/scans", json={"confirm_active_modules": True}
+        )
     scan_id = response.json()["id"]
 
     response = client.get(f"/scans/{scan_id}/findings")
