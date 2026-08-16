@@ -9,4 +9,5 @@ from app.modules import (  # noqa: F401
     httpx_probe,
     tech_fingerprint,
     whois_module,
+    cve_correlation,
 )
