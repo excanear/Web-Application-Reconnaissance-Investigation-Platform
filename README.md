@@ -11,9 +11,9 @@ tecnologia, e correlação de vulnerabilidades contra o NVD real — tudo num
 manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#uso)
+[![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#como-usar)
 [![Autorização obrigatória](https://img.shields.io/badge/uso-somente%20autorizado-red?style=flat-square)](#autorização-e-uso-responsável)
-[![Testes](https://img.shields.io/badge/testes-50%20passing-brightgreen?style=flat-square)](#testes)
+[![Testes](https://img.shields.io/badge/testes-52%20passing-brightgreen?style=flat-square)](#testes)
 
 </div>
 
@@ -22,10 +22,9 @@ manter no ar.
 ## Sumário
 
 - [O que ela faz](#o-que-ela-faz)
-- [Por que existe](#por-que-existe)
-- [Demonstração](#demonstração)
-- [Instalação](#instalação)
-- [Uso](#uso)
+- [Tutorial: do zero ao primeiro scan](#tutorial-do-zero-ao-primeiro-scan)
+- [Problemas comuns](#problemas-comuns)
+- [Referência de comandos](#referência-de-comandos)
 - [Autorização e uso responsável](#autorização-e-uso-responsável)
 - [Como funciona por dentro](#como-funciona-por-dentro)
 - [Catálogo de módulos](#catálogo-de-módulos)
@@ -61,21 +60,106 @@ Você entrega um domínio. A ferramenta:
 Sem frontend, sem API HTTP, sem Celery, sem Redis, sem Docker. Um comando,
 um processo, um relatório.
 
-## Por que existe
+---
 
-A maioria das ferramentas de recon te dá uma lista de subdomínios e para
-por aí, ou te dá um scanner de vulnerabilidade genérico sem saber
-exatamente qual tecnologia e qual versão está rodando. Esta ferramenta
-fecha esse ciclo: mapeia a tecnologia real do alvo até o nível de versão,
-e só then pergunta ao NVD "existe CVE pra essa versão específica?" — o que
-elimina a maior fonte de ruído (falso positivo por versão errada) que
-scanners baseados em busca de texto livre produzem.
+## Tutorial: do zero ao primeiro scan
 
-## Demonstração
+Este tutorial assume que você **nunca rodou a ferramenta antes**. Siga na
+ordem — cada passo tem um jeito de conferir que deu certo antes de ir pro
+próximo. Se algo não bater com o que está descrito, pule direto pra
+[Problemas comuns](#problemas-comuns).
+
+Escolha sua aba: [Windows (PowerShell)](#passo-0-abrir-o-terminal-certo)
+é a mais detalhada porque é onde a maioria dos travamentos acontece;
+macOS/Linux vem em seguida em cada passo.
+
+### Passo 0 — Abrir o terminal certo
+
+**Windows:** abra o **PowerShell** (não o "Prompt de Comando"/`cmd`). Menu
+Iniciar → digite `PowerShell` → Enter.
+
+**macOS/Linux:** abra o Terminal normalmente.
+
+### Passo 1 — Confirmar que o Python está instalado (versão 3.13 ou mais nova)
+
+```powershell
+python --version
+```
+
+Resultado esperado: algo como `Python 3.13.12`. Se aparecer
+**`'python' não é reconhecido como um comando interno ou externo`**,
+tente:
+
+```powershell
+py --version
+```
+
+Se nenhum dos dois funcionar, você não tem Python instalado — baixe em
+[python.org/downloads](https://www.python.org/downloads/) (marque a
+caixinha **"Add Python to PATH"** durante a instalação — esse é o passo
+que mais gente esquece) e repita este passo.
+
+> A partir daqui, este tutorial usa `python`. Se na sua máquina só o `py`
+> funcionou, troque `python` por `py` em todos os comandos abaixo.
+
+### Passo 2 — Baixar o código
+
+```powershell
+git clone https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform.git
+```
+
+Se você não tem `git` instalado, baixe o ZIP direto pelo botão verde
+**"Code" → "Download ZIP"** na página do repositório no GitHub, e
+extraia a pasta.
+
+### Passo 3 — Entrar na pasta certa
+
+Isto é o passo onde **quase todo mundo trava**: os comandos da ferramenta
+só funcionam de dentro da pasta `backend/`, não da raiz do projeto.
+
+```powershell
+cd Web-Application-Reconnaissance-Investigation-Platform\backend
+```
+
+**Confira que você está no lugar certo antes de continuar:**
+
+```powershell
+dir
+```
+
+Você precisa ver `app`, `tests`, `requirements.txt` na listagem. Se não
+aparecer, você está na pasta errada — ajuste o `cd`.
+
+*(macOS/Linux: mesma ideia, só troca `dir` por `ls` e o `\` por `/` no
+caminho.)*
+
+### Passo 4 — Instalar as dependências Python
+
+```powershell
+pip install -r requirements.txt
+```
+
+Isso baixa e instala: `sqlalchemy`, `typer`, `rich`, `requests`,
+`python-whois`, `python-dotenv`, `pytest`. Leva menos de um minuto.
+
+**Como saber se deu certo:** a última linha do terminal deve ser algo como
+`Successfully installed ...` listando os pacotes. Se em vez disso
+aparecer `'pip' não é reconhecido`, tente `python -m pip install -r
+requirements.txt` (troca `pip` por `python -m pip`).
+
+### Passo 5 — Rodar o primeiro scan
+
+Agora sim — o comando principal da ferramenta. Vamos usar `example.com`,
+que é o domínio de exemplo reservado do IANA e seguro pra qualquer pessoa
+testar:
+
+```powershell
+python -m app.cli scan example.com --scope "meu primeiro teste" --authorized --confirm-active
+```
+
+**O que esperar na tela**, em ordem:
 
 ```text
-$ python -m app.cli scan example.com --scope "authorized recon test" --authorized --confirm-active
-
 Rodando crtsh...
 Rodando subfinder...
 Rodando subdomain_permutation...
@@ -84,75 +168,167 @@ Rodando httpx_probe...
 Rodando tech_fingerprint...
 Rodando whois...
 Rodando cve_correlation...
-
-Scan #9 - status: complete
-                           Tecnologias
-+---------------------------------------------------------------+
-| Categoria | Nome       | Versao | Confianca | Host            |
-|-----------+------------+--------+-----------+-----------------|
-| cdn_waf   | Cloudflare | -      | medium    | example.com     |
-| cdn_waf   | Cloudflare | -      | medium    | www.example.com |
-+---------------------------------------------------------------+
-                             CVEs
-+-------------------------------------------------------------------------+
-| CVE            | Severidade | CVSS | Tecnologia    | Descricao          |
-|----------------+------------+------+---------------+--------------------|
-| CVE-2021-23017 | HIGH       | 7.7  | nginx 1.18.0  | Vulnerabilidade... |
-+-------------------------------------------------------------------------+
-                     Outros achados
-+----------------------------------------------------------------------+
-| Tipo         | Valor                     | Modulo                    |
-|--------------+---------------------------+---------------------------|
-| subdomain    | dev.example.com           | crtsh                     |
-| whois        | example.com               | whois                     |
-+----------------------------------------------------------------------+
 ```
 
-*(saída real, capturada rodando a ferramenta contra `example.com` — o
-domínio de exemplo reservado do IANA, seguro pra qualquer pessoa testar.
-A tabela de CVE é ilustrativa aqui; contra um alvo real com uma
-tecnologia versionada, é exatamente essa tabela que aparece preenchida
-com CVEs reais retornados pela API do NVD.)*
+Isso leva entre 10 e 40 segundos (a ferramenta está de fato fazendo
+requisições de rede — não travou, é o `cve_correlation` respeitando o
+limite de velocidade da API do NVD). No final aparece o relatório em
+tabelas.
 
-## Instalação
+**Se você chegou até aqui e viu o relatório final — funcionou.** Parabéns,
+a ferramenta está instalada e operante.
 
-**Pré-requisitos:** Python 3.13+, [Go](https://go.dev/dl/) (opcional, só
-pros dois módulos que usam ferramentas externas).
+### Passo 6 — Rodar contra o seu próprio alvo
 
-```bash
-git clone <este-repositório>
-cd "Web Application Reconnaissance & Investigation Platform/backend"
+Troque `example.com` pelo domínio que você tem autorização de testar, e
+`"meu primeiro teste"` por uma descrição real do escopo:
+
+```powershell
+python -m app.cli scan seudominio.com.br --scope "pentest autorizado - contrato XYZ" --authorized --confirm-active
+```
+
+Depois, veja tudo que você já rodou:
+
+```powershell
+python -m app.cli history
+```
+
+E reimprima o relatório de um scan específico (troque `1` pelo número que
+aparece na coluna `ID` do `history`):
+
+```powershell
+python -m app.cli report 1
+```
+
+---
+
+## Problemas comuns
+
+### `ModuleNotFoundError: No module named 'app'`
+
+Você rodou o comando de fora da pasta `backend/`. Volte ao
+[Passo 3](#passo-3--entrar-na-pasta-certa): rode `cd backend` (ajuste o
+caminho conforme onde você está) e confirme com `dir`/`ls` que aparecem
+`app`, `tests`, `requirements.txt` antes de tentar de novo.
+
+### `'python' não é reconhecido como um comando`
+
+Duas causas possíveis:
+1. Python não está instalado — instale em
+   [python.org/downloads](https://www.python.org/downloads/) marcando
+   **"Add Python to PATH"**.
+2. Python está instalado mas só responde a `py` — troque `python` por
+   `py` em todos os comandos.
+
+### PowerShell recusa rodar um script `.ps1`
+
+Se você tentar rodar `.\scripts\install.ps1` (script opcional dos módulos
+`subfinder`/`httpx`, veja [Referência de comandos](#instalar-subfinder-e-httpx-opcional))
+e aparecer:
+
+```text
+não pode ser carregado porque a execução de scripts foi desabilitada neste sistema
+```
+
+Rode isto uma única vez (permite scripts baixados só pro seu usuário, não
+muda nada pro resto do sistema):
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Confirme com `S`/`Y` quando perguntado, e tente rodar o script de novo.
+
+### Erro dizendo que falta `--authorized` ou `--confirm-active`
+
+**Isso não é bug — é a trava de segurança da ferramenta funcionando.**
+Ela se recusa a criar um scan sem essas duas confirmações explícitas
+(veja [Autorização e uso responsável](#autorização-e-uso-responsável)).
+Adicione as duas flags no final do comando:
+
+```powershell
+python -m app.cli scan example.com --scope "teste" --authorized --confirm-active
+```
+
+### O comando parece travado, não imprime nada por um tempo
+
+Normal nos primeiros 10-40 segundos — a ferramenta está mesmo fazendo
+requisições de rede reais (DNS, HTTP, consultas ao NVD). Se passar de
+uns 2 minutos sem nenhuma linha nova, aí sim pode ser um alvo com muitos
+subdomínios ou uma rede lenta; aguarde mais um pouco antes de interromper
+com `Ctrl+C`.
+
+### Erro de permissão / `pip install` falha
+
+Tente instalar num ambiente virtual, isolado do resto do seu sistema:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
-Instale as ferramentas externas opcionais (`subfinder` e `httpx`, usadas
-pelos módulos de mesmo nome — sem elas, esses dois módulos registram um
-`module_error` e o resto do scan continua normalmente):
+Se o `Activate.ps1` também for bloqueado, aplique a mesma correção da
+seção [PowerShell recusa rodar um script](#powershell-recusa-rodar-um-script-ps1)
+acima antes de tentar de novo.
 
-```bash
-# Linux/macOS
-./scripts/install.sh
+*(macOS/Linux: `python -m venv venv` e depois `source venv/bin/activate`.)*
 
-# Windows
+### Acham `module_error` pra `subfinder` ou `httpx_probe` no relatório
+
+Esperado se você não instalou as ferramentas externas em Go — são
+opcionais. O resto do scan continua funcionando normalmente (`crtsh`,
+`whois`, `tech_fingerprint`, `cve_correlation` são Python puro, não
+dependem delas). Se quiser instalar mesmo assim, veja
+[Referência de comandos](#instalar-subfinder-e-httpx-opcional).
+
+### `sqlite3.OperationalError: database is locked` ou erro ao apagar `dev.db`
+
+Outro processo da ferramenta ainda está rodando (ou travou) e segurando o
+arquivo `dev.db`. Feche qualquer terminal onde a ferramenta esteja
+rodando e tente de novo. No Windows, se persistir, reinicie o terminal.
+
+### Nada do que está aqui resolveu
+
+Abra uma [issue no repositório](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues)
+colando: o comando exato que você rodou, a mensagem de erro completa, e
+o resultado de `python --version`.
+
+---
+
+## Referência de comandos
+
+### Instalar `subfinder` e `httpx` (opcional)
+
+Ferramentas externas em Go, usadas pelos módulos de mesmo nome. Exigem o
+[Go](https://go.dev/dl/) instalado. Sem elas, esses dois módulos
+específicos registram `module_error` e o resto do scan continua normal —
+não é obrigatório instalar pra usar a ferramenta.
+
+```powershell
+# Windows (de dentro de backend/)
 .\scripts\install.ps1
 ```
 
-Configure sua chave de API do NVD (opcional, mas recomendado — sem ela o
-limite de consulta cai de 50 pra 5 requisições a cada 30 segundos):
-
 ```bash
-cp .env.example .env
-# edite .env e preencha NVD_API_KEY=
-# chave gratuita em https://nvd.nist.gov/developers/request-an-api-key
+# Linux/macOS (de dentro de backend/)
+./scripts/install.sh
 ```
 
-## Uso
+### Configurar a chave de API do NVD (opcional, recomendado)
 
-Todos os comandos rodam a partir de `backend/`:
+Sem chave, o limite de consulta ao NVD é de 5 requisições a cada 30
+segundos. Com chave gratuita, sobe pra 50/30s — scans com muitas
+tecnologias ficam bem mais rápidos.
 
-```bash
-cd backend
+```powershell
+copy .env.example .env
 ```
+
+Abra o `.env` num editor de texto e preencha `NVD_API_KEY=` com uma chave
+gratuita obtida em
+[nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
+O `.env` nunca é enviado ao git (já está no `.gitignore`).
 
 ### Rodar um scan
 
@@ -208,6 +384,8 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 ```
 
 </details>
+
+---
 
 ## Autorização e uso responsável
 
@@ -348,7 +526,7 @@ cd backend
 pytest -v
 ```
 
-50 testes, cobrindo cada módulo isoladamente (mockando chamadas
+52 testes, cobrindo cada módulo isoladamente (mockando chamadas
 externas), o orquestrador (isolamento de falha por módulo, ordenação por
 `run_order`, propagação de contexto), e a CLI (`typer.testing.CliRunner`,
 mockando o orquestrador pra não depender de rede).
@@ -369,6 +547,10 @@ mockando o orquestrador pra não depender de rede).
   aparecem como achado `subdomain` mesmo sem confirmação de que
   respondem de verdade, a menos que `httpx_probe` esteja instalado pra
   filtrar quem está realmente vivo.
+- **Fingerprint de CDN/frontend cobre um conjunto fixo** — plataformas
+  fora da tabela (ex: Vercel) ou variações modernas de um framework (ex:
+  Next.js App Router, que não expõe mais o marcador que a regra atual
+  procura) não são detectadas ainda.
 
 ## Roteiro
 
@@ -376,5 +558,7 @@ mockando o orquestrador pra não depender de rede).
 - Log de auditoria de toda requisição enviada ao alvo
 - Cache de resultado de CVE entre scans
 - Fingerprint por hash de favicon
+- Cobertura de mais plataformas de hospedagem/CDN (Vercel, Netlify, Render)
+  e do Next.js App Router
 - Grafo de correlação de ativos (domínio → subdomínio → IP → tecnologia → CVE)
 - Catálogo de recon ativo de rede (port scan, inspeção TLS profunda)
