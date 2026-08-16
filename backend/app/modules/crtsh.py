@@ -17,8 +17,8 @@ class CrtShModule(ReconModule):
         subdomains = set()
         for entry in response.json():
             for name in entry.get("name_value", "").split("\n"):
-                name = name.strip().lstrip("*.")
-                if name.endswith(target):
+                name = name.strip().removeprefix("*.")
+                if name == target or name.endswith("." + target):
                     subdomains.add(name)
 
         return [

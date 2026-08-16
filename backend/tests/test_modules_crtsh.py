@@ -10,6 +10,7 @@ def test_crtsh_extracts_unique_subdomains_from_certificate_entries():
         {"name_value": "a.example.com\n*.a.example.com"},
         {"name_value": "b.example.com"},
         {"name_value": "unrelated.org"},
+        {"name_value": "evilexample.com"},
     ]
     with patch("app.modules.crtsh.requests.get", return_value=fake_response) as mock_get:
         findings = CrtShModule().run("example.com", {})
