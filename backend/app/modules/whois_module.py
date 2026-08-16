@@ -1,8 +1,9 @@
 import whois
 
-from app.modules.base import Finding, ReconModule
+from app.modules.base import Finding, ReconModule, register_module
 
 
+@register_module
 class WhoisModule(ReconModule):
     name = "whois"
 

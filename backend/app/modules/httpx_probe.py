@@ -1,9 +1,10 @@
 import json
 import subprocess
 
-from app.modules.base import Finding, ReconModule
+from app.modules.base import Finding, ReconModule, register_module
 
 
+@register_module
 class HttpxProbeModule(ReconModule):
     name = "httpx_probe"
 

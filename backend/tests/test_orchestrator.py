@@ -31,13 +31,13 @@ def test_run_scan_persists_findings_and_marks_scan_complete():
     scan_id = _create_authorized_project_and_scan()
 
     with patch(
-        "app.orchestrator.SubfinderModule.run",
+        "app.modules.subfinder.SubfinderModule.run",
         return_value=[Finding("subdomain", "a.example.com")],
-    ), patch("app.orchestrator.CrtShModule.run", return_value=[]), patch(
-        "app.orchestrator.WhoisModule.run",
+    ), patch("app.modules.crtsh.CrtShModule.run", return_value=[]), patch(
+        "app.modules.whois_module.WhoisModule.run",
         return_value=[Finding("whois", "example.com")],
     ), patch(
-        "app.orchestrator.HttpxProbeModule.run",
+        "app.modules.httpx_probe.HttpxProbeModule.run",
         return_value=[Finding("live_host", "https://a.example.com")],
     ):
         run_scan(scan_id)
@@ -77,12 +77,12 @@ def _create_unauthorized_project_and_scan():
 def test_run_scan_fails_without_running_modules_when_project_not_authorized():
     scan_id = _create_unauthorized_project_and_scan()
 
-    with patch("app.orchestrator.SubfinderModule.run") as mock_subfinder, patch(
-        "app.orchestrator.CrtShModule.run"
+    with patch("app.modules.subfinder.SubfinderModule.run") as mock_subfinder, patch(
+        "app.modules.crtsh.CrtShModule.run"
     ) as mock_crtsh, patch(
-        "app.orchestrator.WhoisModule.run"
+        "app.modules.whois_module.WhoisModule.run"
     ) as mock_whois, patch(
-        "app.orchestrator.HttpxProbeModule.run"
+        "app.modules.httpx_probe.HttpxProbeModule.run"
     ) as mock_httpx:
         run_scan(scan_id)
 
@@ -104,15 +104,15 @@ def test_run_scan_isolates_a_failing_module_and_keeps_going():
     scan_id = _create_authorized_project_and_scan()
 
     with patch(
-        "app.orchestrator.SubfinderModule.run", side_effect=RuntimeError("boom")
+        "app.modules.subfinder.SubfinderModule.run", side_effect=RuntimeError("boom")
     ), patch(
-        "app.orchestrator.CrtShModule.run",
+        "app.modules.crtsh.CrtShModule.run",
         return_value=[Finding("subdomain", "a.example.com")],
     ), patch(
-        "app.orchestrator.WhoisModule.run",
+        "app.modules.whois_module.WhoisModule.run",
         return_value=[Finding("whois", "example.com")],
     ), patch(
-        "app.orchestrator.HttpxProbeModule.run",
+        "app.modules.httpx_probe.HttpxProbeModule.run",
         return_value=[Finding("live_host", "https://a.example.com")],
     ):
         run_scan(scan_id)

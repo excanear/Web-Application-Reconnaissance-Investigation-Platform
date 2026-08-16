@@ -1,10 +1,6 @@
 from app.db import SessionLocal
 from app import models
-from app.modules.base import Finding
-from app.modules.crtsh import CrtShModule
-from app.modules.httpx_probe import HttpxProbeModule
-from app.modules.subfinder import SubfinderModule
-from app.modules.whois_module import WhoisModule
+from app.modules.base import Finding, MODULE_REGISTRY
 from app.timeutil import utc_now
 
 
@@ -25,12 +21,15 @@ def run_scan(scan_id: int) -> None:
         target = scan.project.target
         context: dict = {"subdomains": set()}
 
-        for module in (SubfinderModule(), CrtShModule()):
+        discovery_modules = [cls() for cls in MODULE_REGISTRY.values() if cls.discovers_subdomains]
+        other_modules = [cls() for cls in MODULE_REGISTRY.values() if not cls.discovers_subdomains]
+
+        for module in discovery_modules:
             for finding in _run_module(db, scan_id, module, target, context):
                 if finding.type == "subdomain":
                     context["subdomains"].add(finding.value)
 
-        for module in (WhoisModule(), HttpxProbeModule()):
+        for module in other_modules:
             _run_module(db, scan_id, module, target, context)
 
         scan.status = "complete"
