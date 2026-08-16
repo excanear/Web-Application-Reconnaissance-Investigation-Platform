@@ -1,10 +1,13 @@
+from typing import Callable
+
 from app.db import SessionLocal
 from app import models
 from app.modules.base import Finding, MODULE_REGISTRY
 from app.timeutil import utc_now
 
 
-def run_scan(scan_id: int) -> None:
+def run_scan(scan_id: int, progress_callback: Callable[[str], None] | None = None) -> None:
+    progress_callback = progress_callback or (lambda module_name: None)
     db = SessionLocal()
     scan = db.get(models.Scan, scan_id)
     try:
@@ -23,6 +26,7 @@ def run_scan(scan_id: int) -> None:
 
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
         for module_cls in ordered_modules:
+            progress_callback(module_cls.name)
             module = module_cls()
             for finding in _run_module(db, scan_id, module, target, context):
                 if finding.type == "subdomain":

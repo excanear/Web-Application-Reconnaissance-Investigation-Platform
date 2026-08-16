@@ -8,8 +8,7 @@ load_dotenv()
 
 @dataclass
 class Settings:
-    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./dev.db")
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    database_url: str = os.getenv("DATABASE_URL") or "sqlite:///./dev.db"
     nvd_api_key: str | None = os.getenv("NVD_API_KEY") or None
 
 

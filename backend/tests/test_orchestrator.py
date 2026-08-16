@@ -175,3 +175,30 @@ def test_run_scan_threads_technologies_from_earlier_to_later_modules_by_run_orde
         del MODULE_REGISTRY[_LateCorrelationModule.name]
 
     assert seen_technologies == [[{"name": "nginx", "version": "1.18"}]]
+
+
+def test_run_scan_calls_progress_callback_with_each_module_name_in_run_order():
+    scan_id = _create_authorized_project_and_scan()
+    seen_names = []
+
+    with _mock_all_modules():
+        run_scan(scan_id, progress_callback=seen_names.append)
+
+    module_names_by_run_order = [
+        name for name, _ in sorted(MODULE_REGISTRY.items(), key=lambda item: item[1].run_order)
+    ]
+    assert seen_names == module_names_by_run_order
+
+
+def test_run_scan_works_without_a_progress_callback():
+    scan_id = _create_authorized_project_and_scan()
+
+    with _mock_all_modules():
+        run_scan(scan_id)
+
+    db = SessionLocal()
+    try:
+        scan = db.get(models.Scan, scan_id)
+    finally:
+        db.close()
+    assert scan.status == "complete"
