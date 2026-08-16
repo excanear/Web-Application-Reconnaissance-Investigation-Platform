@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from app.db import Base, engine, SessionLocal
 from app import models
-from app.modules.base import Finding
+from app.modules.base import Finding, MODULE_REGISTRY, ReconModule, register_module
 from app.orchestrator import run_scan
 
 
@@ -136,3 +136,39 @@ def test_run_scan_isolates_a_failing_module_and_keeps_going():
     error_finding = next(f for f in findings if f.module == "subfinder")
     assert error_finding.value == "subfinder"
     assert "boom" in error_finding.data["error"]
+
+
+def test_run_scan_threads_technologies_from_earlier_to_later_modules_by_run_order():
+    seen_technologies = []
+
+    class _EarlyTechModule(ReconModule):
+        name = "_test_early_tech_module"
+        run_order = 20
+
+        def run(self, target, context):
+            return [Finding(type="technology", value=target, data={"name": "nginx", "version": "1.18"})]
+
+    class _LateCorrelationModule(ReconModule):
+        name = "_test_late_correlation_module"
+        run_order = 90
+
+        def run(self, target, context):
+            seen_technologies.append(list(context.get("technologies", [])))
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_EarlyTechModule)
+        register_module(_LateCorrelationModule)
+
+        with patch("app.modules.subfinder.SubfinderModule.run", return_value=[]), patch(
+            "app.modules.crtsh.CrtShModule.run", return_value=[]
+        ), patch("app.modules.whois_module.WhoisModule.run", return_value=[]), patch(
+            "app.modules.httpx_probe.HttpxProbeModule.run", return_value=[]
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_EarlyTechModule.name]
+        del MODULE_REGISTRY[_LateCorrelationModule.name]
+
+    assert seen_technologies == [[{"name": "nginx", "version": "1.18"}]]

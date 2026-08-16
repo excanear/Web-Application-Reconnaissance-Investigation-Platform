@@ -11,7 +11,9 @@ class Finding:
 
 class ReconModule(ABC):
     name: str
-    discovers_subdomains: bool = False
+    # Orchestrator runs modules in ascending run_order, threading context
+    # through each: 10=discovery, 50=analysis (default), 90=correlation.
+    run_order: int = 50
 
     @abstractmethod
     def run(self, target: str, context: dict) -> list[Finding]:

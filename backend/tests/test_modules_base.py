@@ -13,24 +13,24 @@ def test_recon_module_cannot_be_instantiated_directly():
         ReconModule()
 
 
-def test_recon_module_defaults_discovers_subdomains_to_false():
-    class _NonDiscoveryModule(ReconModule):
-        name = "_non_discovery_test_module"
+def test_recon_module_defaults_run_order_to_fifty():
+    class _DefaultOrderModule(ReconModule):
+        name = "_default_order_test_module"
 
         def run(self, target: str, context: dict) -> list[Finding]:
             return []
 
     try:
-        register_module(_NonDiscoveryModule)
-        assert _NonDiscoveryModule.discovers_subdomains is False
+        register_module(_DefaultOrderModule)
+        assert _DefaultOrderModule.run_order == 50
     finally:
-        del MODULE_REGISTRY[_NonDiscoveryModule.name]
+        del MODULE_REGISTRY[_DefaultOrderModule.name]
 
 
 def test_register_module_adds_class_to_registry_by_name():
     class _FakeModule(ReconModule):
         name = "_fake_test_module"
-        discovers_subdomains = True
+        run_order = 10
 
         def run(self, target: str, context: dict) -> list[Finding]:
             return []

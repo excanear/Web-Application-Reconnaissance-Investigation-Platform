@@ -6,7 +6,7 @@ from app.modules.base import Finding, ReconModule, register_module
 @register_module
 class SubfinderModule(ReconModule):
     name = "subfinder"
-    discovers_subdomains = True
+    run_order = 10
 
     def run(self, target: str, context: dict) -> list[Finding]:
         result = subprocess.run(

@@ -22,7 +22,7 @@ COMMON_WORDS = [
 class SubdomainPermutationModule(ReconModule):
     # Generates candidates only; HttpxProbeModule (runs after) checks liveness.
     name = "subdomain_permutation"
-    discovers_subdomains = True
+    run_order = 10
 
     def run(self, target: str, context: dict) -> list[Finding]:
         labels = {

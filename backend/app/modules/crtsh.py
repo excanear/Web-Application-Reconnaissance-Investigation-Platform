@@ -6,7 +6,7 @@ from app.modules.base import Finding, ReconModule, register_module
 @register_module
 class CrtShModule(ReconModule):
     name = "crtsh"
-    discovers_subdomains = True
+    run_order = 10
 
     def run(self, target: str, context: dict) -> list[Finding]:
         response = requests.get(
