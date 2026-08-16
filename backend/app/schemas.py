@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ProjectCreate(BaseModel):
@@ -32,8 +32,7 @@ class ProjectOut(BaseModel):
     authorized: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScanOut(BaseModel):
@@ -43,8 +42,7 @@ class ScanOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FindingOut(BaseModel):
@@ -54,5 +52,4 @@ class FindingOut(BaseModel):
     value: str
     data: dict
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

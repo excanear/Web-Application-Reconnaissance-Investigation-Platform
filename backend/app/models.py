@@ -1,9 +1,8 @@
-from datetime import datetime
-
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db import Base
+from app.timeutil import utc_now
 
 
 class Project(Base):
@@ -15,7 +14,7 @@ class Project(Base):
     scope_notes = Column(Text, nullable=False)
     authorized = Column(Boolean, nullable=False, default=False)
     authorized_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     scans = relationship("Scan", back_populates="project")
 
@@ -42,6 +41,6 @@ class Finding(Base):
     type = Column(String, nullable=False)
     value = Column(String, nullable=False)
     data = Column(JSON, nullable=False, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now)
 
     scan = relationship("Scan", back_populates="findings")

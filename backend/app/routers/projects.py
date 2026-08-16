@@ -1,10 +1,9 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.db import get_db
+from app.timeutil import utc_now
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -16,7 +15,7 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
         target=payload.target,
         scope_notes=payload.scope_notes,
         authorized=payload.authorized,
-        authorized_at=datetime.utcnow(),
+        authorized_at=utc_now(),
     )
     db.add(project)
     db.commit()

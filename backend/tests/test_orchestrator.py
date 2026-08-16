@@ -100,21 +100,39 @@ def test_run_scan_fails_without_running_modules_when_project_not_authorized():
     assert scan.status == "failed"
 
 
-def test_run_scan_marks_scan_failed_on_module_error():
+def test_run_scan_isolates_a_failing_module_and_keeps_going():
     scan_id = _create_authorized_project_and_scan()
 
     with patch(
         "app.orchestrator.SubfinderModule.run", side_effect=RuntimeError("boom")
+    ), patch(
+        "app.orchestrator.CrtShModule.run",
+        return_value=[Finding("subdomain", "a.example.com")],
+    ), patch(
+        "app.orchestrator.WhoisModule.run",
+        return_value=[Finding("whois", "example.com")],
+    ), patch(
+        "app.orchestrator.HttpxProbeModule.run",
+        return_value=[Finding("live_host", "https://a.example.com")],
     ):
-        try:
-            run_scan(scan_id)
-        except RuntimeError:
-            pass
+        run_scan(scan_id)
 
     db = SessionLocal()
     try:
         scan = db.get(models.Scan, scan_id)
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
     finally:
         db.close()
 
-    assert scan.status == "failed"
+    assert scan.status == "complete"
+    assert scan.finished_at is not None
+
+    types_by_module = {(f.module, f.type) for f in findings}
+    assert ("subfinder", "module_error") in types_by_module
+    assert ("crtsh", "subdomain") in types_by_module
+    assert ("whois", "whois") in types_by_module
+    assert ("httpx_probe", "live_host") in types_by_module
+
+    error_finding = next(f for f in findings if f.module == "subfinder")
+    assert error_finding.value == "subfinder"
+    assert "boom" in error_finding.data["error"]
