@@ -3,20 +3,30 @@ from unittest.mock import MagicMock, patch
 from app.modules import cve_correlation
 from app.modules.cve_correlation import CveCorrelationModule
 
-NVD_RESPONSE_ONE_CVE = {
-    "vulnerabilities": [
-        {
-            "cve": {
-                "id": "CVE-2021-23017",
-                "descriptions": [{"lang": "en", "value": "A vulnerability in nginx resolver."}],
-                "metrics": {
-                    "cvssMetricV31": [
-                        {"cvssData": {"baseScore": 9.4, "baseSeverity": "CRITICAL"}}
-                    ]
-                },
-            }
-        }
-    ]
+
+def _nvd_response(*vulnerabilities):
+    return {"vulnerabilities": [{"cve": v} for v in vulnerabilities]}
+
+
+def _cve(cve_id, cpe_matches, cvss_score=9.4, severity="CRITICAL", description="A vuln."):
+    return {
+        "id": cve_id,
+        "descriptions": [{"lang": "en", "value": description}],
+        "metrics": {"cvssMetricV31": [{"cvssData": {"baseScore": cvss_score, "baseSeverity": severity}}]},
+        "configurations": [{"nodes": [{"cpeMatch": cpe_matches}]}],
+    }
+
+
+NGINX_RANGE_MATCH = {
+    "vulnerable": True,
+    "criteria": "cpe:2.3:a:f5:nginx:*:*:*:*:*:*:*:*",
+    "versionStartIncluding": "0.6.18",
+    "versionEndExcluding": "1.20.1",
+}
+
+NGINX_EXACT_MATCH = {
+    "vulnerable": True,
+    "criteria": "cpe:2.3:a:f5:nginx:1.19.0:*:*:*:*:*:*:*",
 }
 
 
@@ -28,22 +38,19 @@ def _mock_response(payload, status_code=200):
     return response
 
 
-def test_correlates_technology_with_version_into_cve_findings(monkeypatch):
+def test_correlates_technology_whose_version_falls_inside_the_cpe_range(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
 
     with patch(
-        "app.modules.cve_correlation.requests.get",
-        return_value=_mock_response(NVD_RESPONSE_ONE_CVE),
+        "app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)
     ) as mock_get:
         findings = CveCorrelationModule().run("example.com", context)
 
-    assert mock_get.call_args.kwargs["params"] == {"keywordSearch": "nginx 1.18.0"}
-    assert "headers" not in mock_get.call_args.kwargs or "apiKey" not in (
-        mock_get.call_args.kwargs.get("headers") or {}
-    )
+    assert mock_get.call_args.kwargs["params"] == {"keywordSearch": "nginx"}
 
     assert len(findings) == 1
     finding = findings[0]
@@ -53,7 +60,52 @@ def test_correlates_technology_with_version_into_cve_findings(monkeypatch):
     assert finding.data["severity"] == "CRITICAL"
     assert finding.data["matched_technology"] == "nginx"
     assert finding.data["matched_technology_version"] == "1.18.0"
-    assert "resolver" in finding.data["description"]
+
+
+def test_excludes_cve_whose_range_does_not_cover_the_detected_version(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    # 1.20.1 is >= versionEndExcluding, so this CVE does not apply.
+    context = {"technologies": [{"name": "nginx", "version": "1.20.1"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings == []
+
+
+def test_matches_cve_pinned_to_an_exact_cpe_version_with_no_range(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.19.0"}]}
+    payload = _nvd_response(_cve("CVE-2099-99999", [NGINX_EXACT_MATCH]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert len(findings) == 1
+    assert findings[0].value == "CVE-2099-99999"
+
+
+def test_excludes_cve_for_a_different_product_sharing_keyword_results(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
+    unrelated_match = {
+        "vulnerable": True,
+        "criteria": "cpe:2.3:a:openresty:openresty:*:*:*:*:*:*:*:*",
+        "versionEndExcluding": "1.19.3.2",
+    }
+    payload = _nvd_response(_cve("CVE-9999-00001", [unrelated_match]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings == []
 
 
 def test_sends_api_key_header_when_configured(monkeypatch):
@@ -61,10 +113,10 @@ def test_sends_api_key_header_when_configured(monkeypatch):
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
 
     with patch(
-        "app.modules.cve_correlation.requests.get",
-        return_value=_mock_response(NVD_RESPONSE_ONE_CVE),
+        "app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)
     ) as mock_get:
         CveCorrelationModule().run("example.com", context)
 
@@ -104,13 +156,14 @@ def test_isolates_one_failing_technology_query_and_keeps_the_rest(monkeypatch):
             {"name": "nginx", "version": "1.18.0"},
         ]
     }
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
 
     import requests
 
     def fake_get(url, params=None, **kwargs):
-        if params.get("keywordSearch") == "broken-tech 1.0":
+        if params.get("keywordSearch") == "broken-tech":
             raise requests.RequestException("nvd is down")
-        return _mock_response(NVD_RESPONSE_ONE_CVE)
+        return _mock_response(payload)
 
     with patch("app.modules.cve_correlation.requests.get", side_effect=fake_get):
         findings = CveCorrelationModule().run("example.com", context)
@@ -130,11 +183,9 @@ def test_sleeps_between_requests_to_respect_nvd_rate_limit(monkeypatch):
             {"name": "PHP", "version": "8.1"},
         ]
     }
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
 
-    with patch(
-        "app.modules.cve_correlation.requests.get",
-        return_value=_mock_response(NVD_RESPONSE_ONE_CVE),
-    ):
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
         CveCorrelationModule().run("example.com", context)
 
     assert len(sleep_calls) == 2
