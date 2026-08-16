@@ -7,5 +7,6 @@ from app.modules import (  # noqa: F401
     subfinder,
     permutation,
     httpx_probe,
+    tech_fingerprint,
     whois_module,
 )
