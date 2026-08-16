@@ -1,3 +1,5 @@
+import sys
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -8,10 +10,23 @@ from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
 from app.timeutil import utc_now
 
+# NVD descriptions can contain characters legacy Windows consoles (cp1252)
+# can't encode; replace instead of crashing the whole report.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(errors="replace")
+
 app = typer.Typer(help="Recon & Investigation CLI")
 console = Console()
 
 Base.metadata.create_all(bind=engine)
+
+DESCRIPTION_MAX_LENGTH = 200
+
+
+def _truncate(text: str, max_length: int = DESCRIPTION_MAX_LENGTH) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[:max_length].rstrip() + "..."
 
 SEVERITY_STYLE = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LOW": "green"}
 
@@ -148,7 +163,7 @@ def _print_report(scan_id: int) -> None:
                 severity_cell,
                 str(f.data.get("cvss_score") or "-"),
                 f"{f.data.get('matched_technology', '')} {f.data.get('matched_technology_version', '')}".strip(),
-                str(f.data.get("description", "")),
+                _truncate(str(f.data.get("description", ""))),
             )
         console.print(table)
 

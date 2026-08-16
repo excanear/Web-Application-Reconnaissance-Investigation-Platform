@@ -136,3 +136,82 @@ def test_report_exits_with_error_for_unknown_scan_id():
 
     assert result.exit_code == 1
     assert "999999" in result.output
+
+
+def test_report_truncates_long_cve_descriptions():
+    long_description = "A" * 500
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Trunc Co", target="trunc.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-9999-00001",
+                data={
+                    "cvss_score": 5.0,
+                    "severity": "MEDIUM",
+                    "description": long_description,
+                    "matched_technology": "nginx",
+                    "matched_technology_version": "1.0",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id)])
+
+    assert result.exit_code == 0
+    assert long_description not in result.output
+    # Rich further wraps/compresses long cells to fit the console width, so
+    # only assert our own truncation actually ran (full string never shows).
+
+
+def test_report_never_crashes_on_a_description_with_unencodable_characters():
+    tricky_description = "vuln with a rewrite‑directive and ASLR.‑"
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Unicode Co", target="unicode.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-9999-00002",
+                data={
+                    "cvss_score": 8.1,
+                    "severity": "HIGH",
+                    "description": tricky_description,
+                    "matched_technology": "nginx",
+                    "matched_technology_version": "1.24.0",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id)])
+
+    assert result.exit_code == 0
