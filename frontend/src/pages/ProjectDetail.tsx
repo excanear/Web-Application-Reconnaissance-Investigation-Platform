@@ -1,0 +1,30 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+
+import { createScan, getProject, type Project } from "../api/client";
+
+export function ProjectDetail() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const [project, setProject] = useState<Project | null>(null);
+
+  useEffect(() => {
+    getProject(Number(id)).then(setProject);
+  }, [id]);
+
+  async function handleNewScan() {
+    const scan = await createScan(Number(id));
+    navigate(`/scans/${scan.id}`);
+  }
+
+  if (!project) return <p>Carregando...</p>;
+
+  return (
+    <div>
+      <h1>{project.name}</h1>
+      <p>Alvo: {project.target}</p>
+      <p>Escopo: {project.scope_notes}</p>
+      <button onClick={handleNewScan}>Novo scan</button>
+    </div>
+  );
+}
