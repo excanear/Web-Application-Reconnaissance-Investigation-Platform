@@ -12,4 +12,10 @@ import pytest
 @pytest.fixture(scope="session", autouse=True)
 def _cleanup_test_db():
     yield
-    os.remove(_db_path)
+    from app.db import engine
+
+    engine.dispose()
+    try:
+        os.remove(_db_path)
+    except OSError:
+        pass
