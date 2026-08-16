@@ -9,6 +9,7 @@ export function ScanReport() {
   const { id } = useParams<{ id: string }>();
   const [scan, setScan] = useState<Scan | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const scanId = Number(id);
@@ -16,12 +17,20 @@ export function ScanReport() {
     let timer: ReturnType<typeof setInterval>;
 
     async function poll() {
-      const current = await getScan(scanId);
-      if (cancelled) return;
-      setScan(current);
-      if (current.status === "complete" || current.status === "failed") {
+      try {
+        const current = await getScan(scanId);
+        if (cancelled) return;
+        setScan(current);
+        if (current.status === "complete" || current.status === "failed") {
+          clearInterval(timer);
+          const scanFindings = await getScanFindings(scanId);
+          if (cancelled) return;
+          setFindings(scanFindings);
+        }
+      } catch (err) {
+        if (cancelled) return;
         clearInterval(timer);
-        setFindings(await getScanFindings(scanId));
+        setError((err as Error).message);
       }
     }
 
@@ -33,6 +42,7 @@ export function ScanReport() {
     };
   }, [id]);
 
+  if (error) return <p role="alert">{error}</p>;
   if (!scan) return <p>Carregando...</p>;
 
   return (

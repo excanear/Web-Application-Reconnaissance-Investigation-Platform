@@ -7,16 +7,24 @@ export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getProject(Number(id)).then(setProject);
+    getProject(Number(id))
+      .then(setProject)
+      .catch((err) => setError((err as Error).message));
   }, [id]);
 
   async function handleNewScan() {
-    const scan = await createScan(Number(id));
-    navigate(`/scans/${scan.id}`);
+    try {
+      const scan = await createScan(Number(id));
+      navigate(`/scans/${scan.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
+  if (error) return <p role="alert">{error}</p>;
   if (!project) return <p>Carregando...</p>;
 
   return (

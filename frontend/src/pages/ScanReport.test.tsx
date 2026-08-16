@@ -33,4 +33,18 @@ describe("ScanReport", () => {
     expect(await screen.findByText("Status: complete")).toBeInTheDocument();
     expect(await screen.findByText("a.example.com")).toBeInTheDocument();
   });
+
+  it("shows an error message when polling the scan fails", async () => {
+    vi.spyOn(client, "getScan").mockRejectedValue(new Error("scan fetch failed"));
+
+    render(
+      <MemoryRouter initialEntries={["/scans/1"]}>
+        <Routes>
+          <Route path="/scans/:id" element={<ScanReport />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("scan fetch failed");
+  });
 });
