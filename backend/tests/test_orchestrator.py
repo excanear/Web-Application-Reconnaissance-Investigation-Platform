@@ -236,6 +236,112 @@ def test_run_scan_uses_default_rate_limit_and_threshold_when_not_specified():
     assert seen_context == {"rate_limit": 5.0, "circuit_breaker_threshold": 5}
 
 
+def test_run_scan_filters_out_of_scope_subdomains_before_later_modules_see_them():
+    seen_subdomains = []
+
+    class _DiscoveryModule(ReconModule):
+        name = "_test_discovery_module"
+        run_order = 10
+
+        def run(self, target, context):
+            return [
+                Finding(type="subdomain", value="in-scope.example.com"),
+                Finding(type="subdomain", value="out-of-scope.example.com"),
+            ]
+
+    class _LateContextCapturingModule(ReconModule):
+        name = "_test_late_context_capturing_module"
+        run_order = 90
+
+        def run(self, target, context):
+            seen_subdomains.append(set(context.get("subdomains", set())))
+            return []
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Scope Filter Co",
+            target="example.com",
+            scope_notes="only in-scope.example.com",
+            authorized=True,
+            scope={
+                "include": ["example.com", "in-scope.example.com"],
+                "exclude": ["out-of-scope.example.com"],
+            },
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_DiscoveryModule)
+        register_module(_LateContextCapturingModule)
+        with _mock_all_modules(
+            exclude={_DiscoveryModule.name, _LateContextCapturingModule.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_DiscoveryModule.name]
+        del MODULE_REGISTRY[_LateContextCapturingModule.name]
+
+    assert seen_subdomains == [{"in-scope.example.com"}]
+
+
+def test_run_scan_skips_a_module_entirely_when_the_scope_window_is_closed():
+    called = []
+
+    class _WindowedModule(ReconModule):
+        name = "_test_windowed_module"
+        run_order = 20
+
+        def run(self, target, context):
+            called.append(self.name)
+            return []
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Window Co",
+            target="example.com",
+            scope_notes="business hours only",
+            authorized=True,
+            scope={
+                "include": ["example.com"],
+                "allowed_window": {"start": "00:00", "end": "00:01"},
+            },
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_WindowedModule)
+        with _mock_all_modules(exclude={_WindowedModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_WindowedModule.name]
+
+    assert called == []
+
+    db = SessionLocal()
+    try:
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+    window_closed = [f for f in findings if f.type == "scope_window_closed"]
+    assert any(f.module == "_test_windowed_module" for f in window_closed)
+
+
 def test_run_scan_works_without_a_progress_callback():
     scan_id = _create_authorized_project_and_scan()
 

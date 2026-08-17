@@ -3,6 +3,7 @@ from typing import Callable
 from app.db import SessionLocal
 from app import models
 from app.modules.base import Finding, MODULE_REGISTRY
+from app.scope import is_in_scope, is_within_window
 from app.timeutil import utc_now
 
 DEFAULT_RATE_LIMIT = 5.0
@@ -35,15 +36,31 @@ def run_scan(
             "technologies": [],
             "rate_limit": rate_limit,
             "circuit_breaker_threshold": circuit_breaker_threshold,
+            "scope": scan.project.scope or {},
         }
 
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
         for module_cls in ordered_modules:
             progress_callback(module_cls.name)
+
+            if not is_within_window(context["scope"]):
+                _persist(
+                    db,
+                    scan_id,
+                    module_cls.name,
+                    Finding(
+                        type="scope_window_closed",
+                        value=module_cls.name,
+                        data={"module": module_cls.name},
+                    ),
+                )
+                continue
+
             module = module_cls()
             for finding in _run_module(db, scan_id, module, target, context):
                 if finding.type == "subdomain":
-                    context["subdomains"].add(finding.value)
+                    if is_in_scope(finding.value, None, context["scope"]):
+                        context["subdomains"].add(finding.value)
                 elif finding.type == "technology":
                     context["technologies"].append(dict(finding.data))
 
