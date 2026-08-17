@@ -1,6 +1,7 @@
 import whois
 
 from app.modules.base import Finding, ReconModule, register_module
+from app.scope import is_in_scope
 
 
 @register_module
@@ -8,6 +9,10 @@ class WhoisModule(ReconModule):
     name = "whois"
 
     def run(self, target: str, context: dict) -> list[Finding]:
+        scope = context.get("scope")
+        if scope is not None and not is_in_scope(target, None, scope):
+            return [Finding(type="out_of_scope", value=target, data={"module": self.name})]
+
         record = whois.whois(target)
         data = {
             "registrar": record.get("registrar"),

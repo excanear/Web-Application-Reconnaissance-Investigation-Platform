@@ -22,3 +22,20 @@ def test_crtsh_extracts_unique_subdomains_from_certificate_entries():
     )
     assert [f.value for f in findings] == ["a.example.com", "b.example.com"]
     assert all(f.data["source"] == "crt.sh" for f in findings)
+
+
+def test_refuses_to_query_a_target_outside_declared_scope():
+    from unittest.mock import patch
+
+    from app.modules.crtsh import CrtShModule
+
+    scope = {"include": ["other.com"]}
+
+    with patch("app.modules.crtsh.requests.get") as mock_get:
+        findings = CrtShModule().run("example.com", {"scope": scope})
+
+    mock_get.assert_not_called()
+    assert len(findings) == 1
+    assert findings[0].type == "out_of_scope"
+    assert findings[0].value == "example.com"
+    assert findings[0].data == {"module": "crtsh"}

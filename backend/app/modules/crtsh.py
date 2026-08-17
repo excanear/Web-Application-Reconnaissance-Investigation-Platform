@@ -1,6 +1,7 @@
 import requests
 
 from app.modules.base import Finding, ReconModule, register_module
+from app.scope import is_in_scope
 
 
 @register_module
@@ -9,6 +10,10 @@ class CrtShModule(ReconModule):
     run_order = 10
 
     def run(self, target: str, context: dict) -> list[Finding]:
+        scope = context.get("scope")
+        if scope is not None and not is_in_scope(target, None, scope):
+            return [Finding(type="out_of_scope", value=target, data={"module": self.name})]
+
         response = requests.get(
             "https://crt.sh/",
             params={"q": f"%.{target}", "output": "json"},
