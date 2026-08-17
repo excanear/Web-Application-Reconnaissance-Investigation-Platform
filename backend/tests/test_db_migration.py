@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, inspect, text
 
+from app import models  # noqa: F401  # registers Project on Base.metadata
 from app.db import ensure_schema
 
 
@@ -39,3 +40,33 @@ def test_ensure_schema_is_a_no_op_when_scope_column_already_exists(tmp_path):
         assert "scope" in columns
     finally:
         current_engine.dispose()
+
+
+def test_ensure_schema_defaults_existing_rows_scope_to_empty_dict(tmp_path):
+    db_path = tmp_path / "legacy_with_row.db"
+    legacy_engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with legacy_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE projects ("
+                    "id INTEGER PRIMARY KEY, name VARCHAR NOT NULL, target VARCHAR NOT NULL, "
+                    "scope_notes TEXT NOT NULL, authorized BOOLEAN NOT NULL, "
+                    "authorized_at DATETIME, created_at DATETIME)"
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO projects "
+                    "(id, name, target, scope_notes, authorized, authorized_at, created_at) "
+                    "VALUES (1, 'Legacy Co', 'legacy.example.com', 'legacy scope', 1, NULL, NULL)"
+                )
+            )
+
+        ensure_schema(bind=legacy_engine)
+
+        with legacy_engine.connect() as conn:
+            row = conn.execute(text("SELECT scope FROM projects WHERE id = 1")).fetchone()
+        assert row[0] == "{}"
+    finally:
+        legacy_engine.dispose()

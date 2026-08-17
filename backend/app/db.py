@@ -25,7 +25,7 @@ def ensure_schema(bind=None) -> None:
     columns = {col["name"] for col in inspector.get_columns("projects")}
     if "scope" not in columns:
         with bind.begin() as conn:
-            conn.execute(text("ALTER TABLE projects ADD COLUMN scope JSON"))
+            conn.execute(text("ALTER TABLE projects ADD COLUMN scope JSON DEFAULT '{}'"))
 
 
 def get_db():
