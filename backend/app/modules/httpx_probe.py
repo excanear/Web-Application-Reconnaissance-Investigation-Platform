@@ -2,6 +2,7 @@ import json
 import subprocess
 
 from app.modules.base import Finding, ReconModule, register_module
+from app.scope import is_in_scope
 
 DEFAULT_RATE_LIMIT = 5.0
 
@@ -13,6 +14,20 @@ class HttpxProbeModule(ReconModule):
 
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = context.get("subdomains", set()) | {target}
+        scope = context.get("scope")
+        findings: list[Finding] = []
+
+        if scope is not None:
+            in_scope_hosts = set()
+            for host in hosts:
+                if is_in_scope(host, None, scope):
+                    in_scope_hosts.add(host)
+                else:
+                    findings.append(
+                        Finding(type="out_of_scope", value=host, data={"module": self.name})
+                    )
+            hosts = in_scope_hosts
+
         rate_limit = context.get("rate_limit", DEFAULT_RATE_LIMIT)
         # httpx paces its own requests natively -- pass our limit through
         # instead of reimplementing pacing for a subprocess we don't
@@ -34,7 +49,6 @@ class HttpxProbeModule(ReconModule):
             check=True,
         )
 
-        findings = []
         for line in result.stdout.splitlines():
             line = line.strip()
             if not line:

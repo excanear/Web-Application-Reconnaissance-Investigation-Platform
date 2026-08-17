@@ -48,3 +48,21 @@ def test_httpx_probe_defaults_rate_limit_when_not_configured():
 
     command = mock_run.call_args.args[0]
     assert command[command.index("-rate-limit") + 1] == "5"
+
+
+def test_pre_filters_out_of_scope_hosts_before_invoking_httpx():
+    fake_result = MagicMock(stdout="")
+    scope = {"include": ["example.com"], "exclude": ["blocked.example.com"]}
+
+    with patch("app.modules.httpx_probe.subprocess.run", return_value=fake_result) as mock_run:
+        findings = HttpxProbeModule().run(
+            "example.com", {"subdomains": {"blocked.example.com"}, "scope": scope}
+        )
+
+    called_input = mock_run.call_args.kwargs["input"]
+    assert "blocked.example.com" not in called_input
+    assert "example.com" in called_input
+
+    out_of_scope = [f for f in findings if f.type == "out_of_scope"]
+    assert [f.value for f in out_of_scope] == ["blocked.example.com"]
+    assert out_of_scope[0].data == {"module": "httpx_probe"}
