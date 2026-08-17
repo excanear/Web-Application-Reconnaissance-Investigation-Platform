@@ -15,7 +15,7 @@ running.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#command-reference)
 [![Authorization required](https://img.shields.io/badge/use-authorized%20only-red?style=flat-square)](#authorization-and-responsible-use)
-[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen?style=flat-square)](#tests)
 
 </div>
 
@@ -412,6 +412,9 @@ python -m app.cli scan <target> --scope "<authorized scope description>" --autho
 | `--name` | no | Project name (defaults to the target itself) |
 | `--max-requests-per-second` | no | Caps request pace against the target/subdomains (default `5.0`) |
 | `--circuit-breaker-threshold` | no | Consecutive failures against a target before a module stops probing it (default `5`) |
+| `--scope-include` | no | Domain pattern or CIDR explicitly in scope (repeatable, defaults to `<target>` and `*.<target>`) |
+| `--scope-exclude` | no | Domain pattern or CIDR explicitly excluded from scope (repeatable) |
+| `--scope-window` | no | Allowed UTC time window, e.g. `09:00-18:00` (default: always allowed) |
 
 Omitting any required flag stops execution **before** any request hits
 the target, with an error message explaining what's missing.
@@ -423,6 +426,12 @@ rate through to `httpx`'s own `-rate-limit` flag. `cve_correlation`
 respects the general limit on top of its existing NVD-specific pacing.
 `crtsh` and `whois` make exactly one request per scan, so neither
 applies to them.
+
+Every module checks the declared scope before touching a host — an
+out-of-scope host is skipped and recorded as an `out_of_scope` finding
+instead of being probed. If narrowing scope with `--scope-include`
+would exclude the target itself, `scan` refuses to create the project
+at all.
 
 ### View history
 
@@ -595,9 +604,9 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 
 `Finding.type` currently includes: `subdomain`, `whois`, `live_host`,
 `technology`, `cve`, `cloud_asset`, `module_error`,
-`circuit_breaker_tripped`. `Finding.data` holds the type-specific
-payload (category/version/confidence for technology;
-CVSS/severity/description for CVE, etc).
+`circuit_breaker_tripped`, `out_of_scope`, `scope_window_closed`.
+`Finding.data` holds the type-specific payload (category/version/
+confidence for technology; CVSS/severity/description for CVE, etc).
 
 ## Tests
 
@@ -606,7 +615,7 @@ cd backend
 pytest -v
 ```
 
-76 tests, covering each module in isolation (mocking external calls), the
+105 tests, covering each module in isolation (mocking external calls), the
 orchestrator (per-module failure isolation, `run_order` ordering, context
 propagation), rate limiting/circuit breaker behavior in isolation, and
 the CLI (`typer.testing.CliRunner`, mocking the orchestrator so it

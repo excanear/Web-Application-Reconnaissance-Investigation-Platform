@@ -15,7 +15,7 @@ manter no ar.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#como-usar)
 [![Autorização obrigatória](https://img.shields.io/badge/uso-somente%20autorizado-red?style=flat-square)](#autorização-e-uso-responsável)
-[![Testes](https://img.shields.io/badge/testes-76%20passing-brightgreen?style=flat-square)](#testes)
+[![Testes](https://img.shields.io/badge/testes-105%20passing-brightgreen?style=flat-square)](#testes)
 
 </div>
 
@@ -411,6 +411,9 @@ python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --aut
 | `--name` | não | Nome do projeto (padrão: o próprio alvo) |
 | `--max-requests-per-second` | não | Limita o ritmo de requisições contra o alvo/subdomínios (padrão `5.0`) |
 | `--circuit-breaker-threshold` | não | Falhas seguidas contra um alvo antes de um módulo parar de sondá-lo (padrão `5`) |
+| `--scope-include` | não | Padrão de domínio ou CIDR explicitamente dentro do escopo (repetível, padrão `<alvo>` e `*.<alvo>`) |
+| `--scope-exclude` | não | Padrão de domínio ou CIDR explicitamente excluído do escopo (repetível) |
+| `--scope-window` | não | Janela de horário permitida em UTC, ex.: `09:00-18:00` (padrão: sempre permitido) |
 
 Omitir qualquer flag obrigatória interrompe a execução **antes** de
 qualquer requisição ao alvo, com uma mensagem de erro explicando o que
@@ -423,6 +426,11 @@ repassa o mesmo limite pra flag nativa `-rate-limit` do `httpx`.
 `cve_correlation` respeita o limite geral além do próprio pacing
 específico do NVD. `crtsh` e `whois` fazem só uma requisição por scan,
 então nenhum dos dois se aplica a eles.
+
+Todo módulo verifica o escopo declarado antes de tocar num host — um
+host fora do escopo é pulado e registrado como um achado `out_of_scope`
+em vez de ser sondado. Se estreitar o escopo com `--scope-include`
+acabar excluindo o próprio alvo, o `scan` se recusa a criar o projeto.
 
 ### Ver o histórico
 
@@ -592,9 +600,10 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 
 `Finding.type` hoje inclui: `subdomain`, `whois`, `live_host`,
 `technology`, `cve`, `cloud_asset`, `module_error`,
-`circuit_breaker_tripped`. `Finding.data` guarda o payload específico de
-cada tipo (categoria/versão/confiança pra tecnologia;
-CVSS/severidade/descrição pra CVE, etc).
+`circuit_breaker_tripped`, `out_of_scope`, `scope_window_closed`.
+`Finding.data` guarda o payload específico de cada tipo
+(categoria/versão/confiança pra tecnologia; CVSS/severidade/descrição
+pra CVE, etc).
 
 ## Testes
 
@@ -603,7 +612,7 @@ cd backend
 pytest -v
 ```
 
-76 testes, cobrindo cada módulo isoladamente (mockando chamadas
+105 testes, cobrindo cada módulo isoladamente (mockando chamadas
 externas), o orquestrador (isolamento de falha por módulo, ordenação por
 `run_order`, propagação de contexto), o comportamento de rate
 limiting/circuit breaker isoladamente, e a CLI (`typer.testing.CliRunner`,
