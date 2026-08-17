@@ -342,6 +342,29 @@ def test_run_scan_skips_a_module_entirely_when_the_scope_window_is_closed():
     assert any(f.module == "_test_windowed_module" for f in window_closed)
 
 
+def test_run_scan_always_threads_a_dict_scope_into_context_even_without_explicit_scope():
+    seen_context = {}
+
+    class _ScopeContextCapturingModule(ReconModule):
+        name = "_test_scope_context_capturing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            seen_context["scope"] = context.get("scope")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_ScopeContextCapturingModule)
+        with _mock_all_modules(exclude={_ScopeContextCapturingModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_ScopeContextCapturingModule.name]
+
+    assert seen_context["scope"] == {}
+    assert isinstance(seen_context["scope"], dict)
+
+
 def test_run_scan_works_without_a_progress_callback():
     scan_id = _create_authorized_project_and_scan()
 

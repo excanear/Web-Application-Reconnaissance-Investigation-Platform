@@ -5,6 +5,8 @@ filter newly discovered subdomains before they reach later modules."""
 import ipaddress
 from datetime import datetime, time
 
+from app.timeutil import utc_now
+
 
 def _parse_network(value: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network | None:
     try:
@@ -51,7 +53,7 @@ def is_within_window(scope: dict, now: datetime | None = None) -> bool:
     window = scope.get("allowed_window")
     if not window:
         return True
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     start = _parse_hhmm(window["start"])
     end = _parse_hhmm(window["end"])
     current = now.time()

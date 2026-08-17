@@ -427,9 +427,9 @@ repassa o mesmo limite pra flag nativa `-rate-limit` do `httpx`.
 específico do NVD. `crtsh` e `whois` fazem só uma requisição por scan,
 então nenhum dos dois se aplica a eles.
 
-Todo módulo verifica o escopo declarado antes de tocar num host — um
-host fora do escopo é pulado e registrado como um achado `out_of_scope`
-em vez de ser sondado. Se estreitar o escopo com `--scope-include`
+Módulos que sondam um host verificam antes o escopo declarado — um
+host fora do escopo que um módulo tocaria é pulado e registrado como um
+achado `out_of_scope` em vez disso. Se estreitar o escopo com `--scope-include`
 acabar excluindo o próprio alvo, o `scan` se recusa a criar o projeto.
 
 ### Ver o histórico

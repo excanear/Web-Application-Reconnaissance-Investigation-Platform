@@ -1,3 +1,4 @@
+import ipaddress
 import re
 import sys
 
@@ -103,7 +104,12 @@ def scan(
     if allowed_window is not None:
         scope_dict["allowed_window"] = allowed_window
 
-    if not is_in_scope(target, None, scope_dict):
+    try:
+        target_ip = str(ipaddress.ip_address(target))
+    except ValueError:
+        target_ip = None
+
+    if not is_in_scope(target, target_ip, scope_dict):
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('target_excluded_from_scope')}")
         raise typer.Exit(code=1)
 

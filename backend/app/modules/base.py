@@ -18,6 +18,15 @@ class ReconModule(ABC):
     # require the scan-level active-modules confirmation to run.
     is_active: bool = False
 
+    # Scope contract: context.get("scope") returns None only when a module
+    # is invoked directly outside the orchestrator (e.g. a unit test calling
+    # .run(target, {})). The real orchestrator always populates context["scope"]
+    # with a dict (scan.project.scope or {}) for every scan. Modules that guard
+    # their scope checks with `if scope is not None and not is_in_scope(...)`
+    # are treating a missing key as "no restriction" purely for that
+    # backward-compatibility case -- it is NOT a safe default to rely on, and a
+    # real dict scope (even {}) fails closed. Do not assume a missing "scope"
+    # key means anything other than "not running under the orchestrator".
     @abstractmethod
     def run(self, target: str, context: dict) -> list[Finding]:
         ...

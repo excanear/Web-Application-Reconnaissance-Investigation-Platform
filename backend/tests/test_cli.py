@@ -347,6 +347,42 @@ def test_scan_rejects_malformed_scope_window():
     assert "scope-window" in result.output.lower()
 
 
+def test_scan_accepts_ip_literal_target_with_default_scope():
+    with patch("app.cli.run_scan"):
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "203.0.113.5",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+
+
+def test_scan_accepts_ip_literal_target_in_scope_via_cidr_include():
+    with patch("app.cli.run_scan"):
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "10.1.2.3",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+                "--scope-include",
+                "10.0.0.0/8",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_report_never_crashes_on_a_description_with_unencodable_characters():
     tricky_description = "vuln with a rewrite‑directive and ASLR.‑"
 

@@ -427,9 +427,9 @@ respects the general limit on top of its existing NVD-specific pacing.
 `crtsh` and `whois` make exactly one request per scan, so neither
 applies to them.
 
-Every module checks the declared scope before touching a host — an
-out-of-scope host is skipped and recorded as an `out_of_scope` finding
-instead of being probed. If narrowing scope with `--scope-include`
+Modules that probe a host check the declared scope first — an
+out-of-scope host a module would otherwise touch is skipped and
+recorded as an `out_of_scope` finding instead. If narrowing scope with `--scope-include`
 would exclude the target itself, `scan` refuses to create the project
 at all.
 
