@@ -15,7 +15,7 @@ manter no ar.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#como-usar)
 [![Autorização obrigatória](https://img.shields.io/badge/uso-somente%20autorizado-red?style=flat-square)](#autorização-e-uso-responsável)
-[![Testes](https://img.shields.io/badge/testes-60%20passing-brightgreen?style=flat-square)](#testes)
+[![Testes](https://img.shields.io/badge/testes-76%20passing-brightgreen?style=flat-square)](#testes)
 
 </div>
 
@@ -409,10 +409,20 @@ python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --aut
 | `--authorized` | sim | Confirmação explícita de que você tem autorização para testar o alvo |
 | `--confirm-active` | sim (há módulos ativos registrados) | Confirmação de que módulos que sondam o alvo diretamente podem rodar |
 | `--name` | não | Nome do projeto (padrão: o próprio alvo) |
+| `--max-requests-per-second` | não | Limita o ritmo de requisições contra o alvo/subdomínios (padrão `5.0`) |
+| `--circuit-breaker-threshold` | não | Falhas seguidas contra um alvo antes de um módulo parar de sondá-lo (padrão `5`) |
 
 Omitir qualquer flag obrigatória interrompe a execução **antes** de
 qualquer requisição ao alvo, com uma mensagem de erro explicando o que
 falta.
+
+`tech_fingerprint` e `cloud_range` pausam entre requisições por host e
+param de sondar um alvo que falha repetidamente, registrando um achado
+`circuit_breaker_tripped` em vez de insistir cegamente. `httpx_probe`
+repassa o mesmo limite pra flag nativa `-rate-limit` do `httpx`.
+`cve_correlation` respeita o limite geral além do próprio pacing
+específico do NVD. `crtsh` e `whois` fazem só uma requisição por scan,
+então nenhum dos dois se aplica a eles.
 
 ### Ver o histórico
 
@@ -581,9 +591,10 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 ```
 
 `Finding.type` hoje inclui: `subdomain`, `whois`, `live_host`,
-`technology`, `cve`, `cloud_asset`, `module_error`. `Finding.data` guarda
-o payload específico de cada tipo (categoria/versão/confiança pra
-tecnologia; CVSS/severidade/descrição pra CVE, etc).
+`technology`, `cve`, `cloud_asset`, `module_error`,
+`circuit_breaker_tripped`. `Finding.data` guarda o payload específico de
+cada tipo (categoria/versão/confiança pra tecnologia;
+CVSS/severidade/descrição pra CVE, etc).
 
 ## Testes
 
@@ -592,16 +603,14 @@ cd backend
 pytest -v
 ```
 
-60 testes, cobrindo cada módulo isoladamente (mockando chamadas
+76 testes, cobrindo cada módulo isoladamente (mockando chamadas
 externas), o orquestrador (isolamento de falha por módulo, ordenação por
-`run_order`, propagação de contexto), e a CLI (`typer.testing.CliRunner`,
+`run_order`, propagação de contexto), o comportamento de rate
+limiting/circuit breaker isoladamente, e a CLI (`typer.testing.CliRunner`,
 mockando o orquestrador pra não depender de rede).
 
 ## Limitações conhecidas
 
-- **Sem rate limiting** — nenhum módulo limita volume de requisição
-  contra o alvo. Fica na sua responsabilidade não rodar contra algo com
-  centenas de subdomínios sem supervisão.
 - **Sem log de auditoria** — requisições feitas ao alvo não ficam
   registradas além dos próprios `Finding`s persistidos.
 - **`subfinder`/`httpx` exigem instalação manual** de ferramentas Go
@@ -620,7 +629,6 @@ mockando o orquestrador pra não depender de rede).
 
 ## Roteiro
 
-- Rate limiting configurável por módulo/alvo
 - Log de auditoria de toda requisição enviada ao alvo
 - Cache de resultado de CVE entre scans
 - Fingerprint por hash de favicon

@@ -15,7 +15,7 @@ running.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#command-reference)
 [![Authorization required](https://img.shields.io/badge/use-authorized%20only-red?style=flat-square)](#authorization-and-responsible-use)
-[![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-76%20passing-brightgreen?style=flat-square)](#tests)
 
 </div>
 
@@ -410,9 +410,19 @@ python -m app.cli scan <target> --scope "<authorized scope description>" --autho
 | `--authorized` | yes | Explicit confirmation that you're authorized to test the target |
 | `--confirm-active` | yes (if active modules are registered) | Confirmation that modules probing the target directly may run |
 | `--name` | no | Project name (defaults to the target itself) |
+| `--max-requests-per-second` | no | Caps request pace against the target/subdomains (default `5.0`) |
+| `--circuit-breaker-threshold` | no | Consecutive failures against a target before a module stops probing it (default `5`) |
 
 Omitting any required flag stops execution **before** any request hits
 the target, with an error message explaining what's missing.
+
+`tech_fingerprint` and `cloud_range` pace each host and stop probing a
+target that fails repeatedly, recording a `circuit_breaker_tripped`
+finding instead of continuing blindly. `httpx_probe` passes the same
+rate through to `httpx`'s own `-rate-limit` flag. `cve_correlation`
+respects the general limit on top of its existing NVD-specific pacing.
+`crtsh` and `whois` make exactly one request per scan, so neither
+applies to them.
 
 ### View history
 
@@ -584,8 +594,9 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 ```
 
 `Finding.type` currently includes: `subdomain`, `whois`, `live_host`,
-`technology`, `cve`, `cloud_asset`, `module_error`. `Finding.data` holds
-the type-specific payload (category/version/confidence for technology;
+`technology`, `cve`, `cloud_asset`, `module_error`,
+`circuit_breaker_tripped`. `Finding.data` holds the type-specific
+payload (category/version/confidence for technology;
 CVSS/severity/description for CVE, etc).
 
 ## Tests
@@ -595,16 +606,14 @@ cd backend
 pytest -v
 ```
 
-60 tests, covering each module in isolation (mocking external calls), the
+76 tests, covering each module in isolation (mocking external calls), the
 orchestrator (per-module failure isolation, `run_order` ordering, context
-propagation), and the CLI (`typer.testing.CliRunner`, mocking the
-orchestrator so it doesn't depend on the network).
+propagation), rate limiting/circuit breaker behavior in isolation, and
+the CLI (`typer.testing.CliRunner`, mocking the orchestrator so it
+doesn't depend on the network).
 
 ## Known limitations
 
-- **No rate limiting** — no module caps request volume against the
-  target. It's on you not to run it against something with hundreds of
-  subdomains unsupervised.
 - **No audit trail** — requests made to the target aren't logged beyond
   the `Finding`s themselves that get persisted.
 - **`subfinder`/`httpx` require manual installation** of external Go
@@ -623,7 +632,6 @@ orchestrator so it doesn't depend on the network).
 
 ## Roadmap
 
-- Configurable rate limiting per module/target
 - Audit log of every request sent to the target
 - CVE result caching between scans
 - Favicon-hash fingerprinting
