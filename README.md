@@ -2,144 +2,149 @@
 
 # Web Application Reconnaissance &amp; Investigation Platform
 
-**Aponte um domínio. Receba tecnologia exata, versão exata e CVE real.**
+English | **[Leia isto em Português](README.pt-BR.md)**
 
-Uma CLI de reconhecimento ofensivo que mapeia a superfície de ataque de um
-alvo autorizado — descoberta de subdomínio, fingerprint ativo de
-tecnologia, e correlação de vulnerabilidades contra o NVD real — tudo num
-único processo síncrono, sem servidor, sem fila, sem infraestrutura pra
-manter no ar.
+**Point it at a domain. Get back the exact technology, exact version, and real CVEs.**
+
+An offensive reconnaissance CLI that maps the attack surface of an
+authorized target — subdomain discovery, active technology fingerprinting,
+and vulnerability correlation against the real NVD — all in a single
+synchronous process, no server, no queue, no infrastructure to keep
+running.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#como-usar)
-[![Autorização obrigatória](https://img.shields.io/badge/uso-somente%20autorizado-red?style=flat-square)](#autorização-e-uso-responsável)
-[![Testes](https://img.shields.io/badge/testes-52%20passing-brightgreen?style=flat-square)](#testes)
+[![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#command-reference)
+[![Authorization required](https://img.shields.io/badge/use-authorized%20only-red?style=flat-square)](#authorization-and-responsible-use)
+[![Tests](https://img.shields.io/badge/tests-60%20passing-brightgreen?style=flat-square)](#tests)
 
 </div>
 
 ---
 
-## Sumário
+## Table of contents
 
-- [O que ela faz](#o-que-ela-faz)
-- [Tutorial: do zero ao primeiro scan](#tutorial-do-zero-ao-primeiro-scan)
-- [Problemas comuns](#problemas-comuns)
-- [Referência de comandos](#referência-de-comandos)
-- [Autorização e uso responsável](#autorização-e-uso-responsável)
-- [Como funciona por dentro](#como-funciona-por-dentro)
-- [Catálogo de módulos](#catálogo-de-módulos)
-- [Fingerprint de tecnologia](#fingerprint-de-tecnologia)
-- [Correlação de CVE](#correlação-de-cve)
-- [Configuração](#configuração)
-- [Dados e persistência](#dados-e-persistência)
-- [Testes](#testes)
-- [Limitações conhecidas](#limitações-conhecidas)
-- [Roteiro](#roteiro)
-
----
-
-## O que ela faz
-
-Você entrega um domínio. A ferramenta:
-
-1. **Descobre** subdomínios (certificate transparency, enumeração passiva,
-   permutação de wordlist).
-2. **Sonda ativamente** o alvo e cada subdomínio contra um motor de
-   fingerprint com dezenas de regras — servidor web, CDN/WAF, linguagem e
-   framework de backend, CMS, framework de frontend — extraindo a
-   **versão exata** sempre que ela vaza em headers, cookies, tags
-   `generator`, ou arquivos de changelog/manifest expostos.
-3. **Correlaciona** cada tecnologia com versão conhecida contra a API real
-   do NVD, filtrando por range de CPE — não é busca de texto solta, é
-   verificação estrutural de que aquela versão específica realmente cai
-   dentro do intervalo vulnerável daquele CVE.
-4. **Imprime um relatório** no terminal, agrupado por Tecnologias, CVEs
-   (ordenados por CVSS decrescente, severidade colorida) e demais achados
-   — e guarda tudo num SQLite local pra você revisitar depois.
-
-Sem frontend, sem API HTTP, sem Celery, sem Redis, sem Docker. Um comando,
-um processo, um relatório.
+- [What it does](#what-it-does)
+- [Tutorial: from zero to your first scan](#tutorial-from-zero-to-your-first-scan)
+- [Common problems](#common-problems)
+- [Command reference](#command-reference)
+- [Authorization and responsible use](#authorization-and-responsible-use)
+- [How it works internally](#how-it-works-internally)
+- [Module catalog](#module-catalog)
+- [Technology fingerprinting](#technology-fingerprinting)
+- [CVE correlation](#cve-correlation)
+- [Configuration](#configuration)
+- [Data and persistence](#data-and-persistence)
+- [Tests](#tests)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
 
 ---
 
-## Tutorial: do zero ao primeiro scan
+## What it does
 
-Este tutorial assume que você **nunca rodou a ferramenta antes**. Siga na
-ordem — cada passo tem um jeito de conferir que deu certo antes de ir pro
-próximo. Se algo não bater com o que está descrito, pule direto pra
-[Problemas comuns](#problemas-comuns).
+You give it a domain. The tool:
 
-Escolha sua aba: [Windows (PowerShell)](#passo-0-abrir-o-terminal-certo)
-é a mais detalhada porque é onde a maioria dos travamentos acontece;
-macOS/Linux vem em seguida em cada passo.
+1. **Discovers** subdomains (certificate transparency, passive enumeration,
+   wordlist permutation).
+2. **Actively probes** the target and every subdomain against a
+   fingerprinting engine with dozens of rules — web server, CDN/WAF,
+   backend language and framework, CMS, frontend framework — extracting
+   the **exact version** whenever it leaks through headers, cookies,
+   `generator` tags, or exposed changelog/manifest files.
+3. **Correlates** each technology with a known version against the real
+   NVD API, filtering by CPE range — not loose text search, but structural
+   verification that the specific version actually falls inside that
+   CVE's vulnerable range.
+4. **Prints a report** to the terminal, grouped by Technologies, CVEs
+   (sorted by descending CVSS, severity color-coded), and other
+   findings — and stores everything in a local SQLite database so you can
+   revisit it later.
 
-### Passo 0 — Abrir o terminal certo
+No frontend, no HTTP API, no Celery, no Redis, no Docker. One command,
+one process, one report.
 
-**Windows:** abra o **PowerShell** (não o "Prompt de Comando"/`cmd`). Menu
-Iniciar → digite `PowerShell` → Enter.
+---
 
-**macOS/Linux:** abra o Terminal normalmente.
+## Tutorial: from zero to your first scan
 
-### Passo 1 — Confirmar que o Python está instalado (versão 3.13 ou mais nova)
+This tutorial assumes you've **never run the tool before**. Follow it in
+order — each step has a way to confirm it worked before moving to the
+next. If something doesn't match what's described, skip straight to
+[Common problems](#common-problems).
+
+Pick your platform: [Windows (PowerShell)](#step-0--open-the-right-terminal)
+is the most detailed since it's where most people get stuck; macOS/Linux
+follows in each step.
+
+### Step 0 — Open the right terminal
+
+**Windows:** open **PowerShell** (not "Command Prompt"/`cmd`). Start menu
+→ type `PowerShell` → Enter.
+
+**macOS/Linux:** open your regular Terminal.
+
+### Step 1 — Confirm Python is installed (version 3.13 or newer)
 
 ```powershell
 python --version
 ```
 
-Resultado esperado: algo como `Python 3.13.12`. Se aparecer
-**`'python' não é reconhecido como um comando interno ou externo`**,
-tente:
+Expected result: something like `Python 3.13.12`. If you see
+**`'python' is not recognized as an internal or external command`**,
+try:
 
 ```powershell
 py --version
 ```
 
-Se nenhum dos dois funcionar, você não tem Python instalado — baixe em
-[python.org/downloads](https://www.python.org/downloads/) (marque a
-caixinha **"Add Python to PATH"** durante a instalação — esse é o passo
-que mais gente esquece) e repita este passo.
+If neither works, you don't have Python installed — download it from
+[python.org/downloads](https://www.python.org/downloads/) (check the
+**"Add Python to PATH"** box during install — this is the step most
+people forget) and repeat this step.
 
-> A partir daqui, este tutorial usa `python`. Se na sua máquina só o `py`
-> funcionou, troque `python` por `py` em todos os comandos abaixo.
+> From here on, this tutorial uses `python`. If only `py` worked on your
+> machine, swap `python` for `py` in every command below.
 
-### Passo 2 — Baixar o código
+### Step 2 — Download the code
 
 ```powershell
 git clone https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform.git
 ```
 
-Se você não tem `git` instalado, baixe o ZIP direto pelo botão verde
-**"Code" → "Download ZIP"** na página do repositório no GitHub, e
-extraia a pasta.
+If you don't have `git` installed, download the ZIP directly via the
+green **"Code" → "Download ZIP"** button on the repository's GitHub page,
+and extract the folder.
 
-### Passo 3 — Entrar na pasta certa
+### Step 3 — Enter the right folder
 
-Isto é o passo onde **quase todo mundo trava**: os comandos da ferramenta
-só funcionam de dentro da pasta `backend/`, não da raiz do projeto.
+This is the step where **almost everyone gets stuck**: the tool's
+commands only work from inside the `backend/` folder, not from the
+project root.
 
 ```powershell
 cd Web-Application-Reconnaissance-Investigation-Platform\backend
 ```
 
-**Confira que você está no lugar certo antes de continuar:**
+**Check you're in the right place before continuing:**
 
 ```powershell
 dir
 ```
 
-Você precisa ver `app`, `tests`, `requirements.txt` na listagem. Se não
-aparecer, você está na pasta errada — ajuste o `cd`.
+You need to see `app`, `tests`, `requirements.txt` in the listing. If you
+don't, you're in the wrong folder — adjust the `cd`.
 
-*(macOS/Linux: mesma ideia, só troca `dir` por `ls` e o `\` por `/` no
-caminho.)*
+*(macOS/Linux: same idea, just swap `dir` for `ls` and `\` for `/` in the
+path.)*
 
-### Passo 4 — Criar um ambiente virtual e instalar as dependências
+### Step 4 — Create a virtual environment and install dependencies
 
-Um ambiente virtual (`venv`) isola os pacotes desta ferramenta do resto
-do seu sistema — evita conflito de versões e, no Linux/macOS mais
-recentes, é **obrigatório** (o Python do sistema recusa instalar pacotes
-direto, veja [`externally-managed-environment`](#error-externally-managed-environment)
-em Problemas comuns se pular este passo e der erro).
+A virtual environment (`venv`) isolates this tool's packages from the
+rest of your system — it avoids version conflicts and, on recent
+Linux/macOS, it's **required** (the system Python refuses to install
+packages directly, see
+[`externally-managed-environment`](#error-externally-managed-environment)
+in Common problems if you skip this step and hit that error).
 
 ```powershell
 # Windows (PowerShell)
@@ -155,67 +160,66 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Como saber se o ambiente virtual está ativo:** o início da linha do
-terminal passa a mostrar `(venv)` antes do resto do prompt. Enquanto
-`(venv)` estiver ali, `python` e `pip` apontam pro ambiente isolado — é
-assim que deve ficar toda vez que for usar a ferramenta (se fechar o
-terminal, repita só o passo de ativar: `.\venv\Scripts\Activate.ps1` ou
-`source venv/bin/activate`, não precisa recriar o venv).
+**How to tell the virtual environment is active:** the start of your
+terminal line now shows `(venv)` before the rest of the prompt. While
+`(venv)` is there, `python` and `pip` point at the isolated environment —
+that's how it should look every time you use the tool (if you close the
+terminal, just repeat the activation step:
+`.\venv\Scripts\Activate.ps1` or `source venv/bin/activate` — no need to
+recreate the venv).
 
-Isso baixa e instala: `sqlalchemy`, `typer`, `rich`, `requests`,
-`python-whois`, `python-dotenv`, `pytest`. Leva menos de um minuto.
+This downloads and installs: `sqlalchemy`, `typer`, `rich`, `requests`,
+`python-whois`, `python-dotenv`, `pytest`. Takes under a minute.
 
-**Como saber se deu certo:** a última linha do terminal deve ser algo como
-`Successfully installed ...` listando os pacotes.
+**How to tell it worked:** the last line in the terminal should look like
+`Successfully installed ...` listing the packages.
 
-### Passo 5 — Rodar o primeiro scan
+### Step 5 — Run your first scan
 
-Agora sim — o comando principal da ferramenta. Vamos usar `example.com`,
-que é o domínio de exemplo reservado do IANA e seguro pra qualquer pessoa
-testar:
+Now for the tool's main command. We'll use `example.com`, IANA's reserved
+example domain, safe for anyone to test against:
 
 ```powershell
-python -m app.cli scan example.com --scope "meu primeiro teste" --authorized --confirm-active
+python -m app.cli scan example.com --scope "my first test" --authorized --confirm-active
 ```
 
-**O que esperar na tela**, em ordem:
+**What to expect on screen**, in order:
 
 ```text
-Rodando crtsh...
-Rodando subfinder...
-Rodando subdomain_permutation...
-Rodando cloud_range...
-Rodando httpx_probe...
-Rodando tech_fingerprint...
-Rodando whois...
-Rodando cve_correlation...
+Running crtsh...
+Running subfinder...
+Running subdomain_permutation...
+Running cloud_range...
+Running httpx_probe...
+Running tech_fingerprint...
+Running whois...
+Running cve_correlation...
 ```
 
-Isso leva entre 10 e 40 segundos (a ferramenta está de fato fazendo
-requisições de rede — não travou, é o `cve_correlation` respeitando o
-limite de velocidade da API do NVD). No final aparece o relatório em
-tabelas.
+This takes 10 to 40 seconds (the tool is genuinely making network
+requests — it hasn't frozen, that's `cve_correlation` respecting the NVD
+API's rate limit). At the end the report appears in tables.
 
-**Se você chegou até aqui e viu o relatório final — funcionou.** Parabéns,
-a ferramenta está instalada e operante.
+**If you got this far and saw the final report — it worked.**
+Congratulations, the tool is installed and operating.
 
-### Passo 6 — Rodar contra o seu próprio alvo
+### Step 6 — Run against your own target
 
-Troque `example.com` pelo domínio que você tem autorização de testar, e
-`"meu primeiro teste"` por uma descrição real do escopo:
+Swap `example.com` for the domain you're authorized to test, and
+`"my first test"` for a real scope description:
 
 ```powershell
-python -m app.cli scan seudominio.com.br --scope "pentest autorizado - contrato XYZ" --authorized --confirm-active
+python -m app.cli scan yourdomain.com --scope "authorized pentest - contract XYZ" --authorized --confirm-active
 ```
 
-Depois, veja tudo que você já rodou:
+Then, see everything you've already run:
 
 ```powershell
 python -m app.cli history
 ```
 
-E reimprima o relatório de um scan específico (troque `1` pelo número que
-aparece na coluna `ID` do `history`):
+And reprint the report for a specific scan (swap `1` for the number in
+the `ID` column from `history`):
 
 ```powershell
 python -m app.cli report 1
@@ -223,61 +227,60 @@ python -m app.cli report 1
 
 ---
 
-## Problemas comuns
+## Common problems
 
 ### `ModuleNotFoundError: No module named 'app'`
 
-Você rodou o comando de fora da pasta `backend/`. Volte ao
-[Passo 3](#passo-3--entrar-na-pasta-certa): rode `cd backend` (ajuste o
-caminho conforme onde você está) e confirme com `dir`/`ls` que aparecem
-`app`, `tests`, `requirements.txt` antes de tentar de novo.
+You ran the command from outside the `backend/` folder. Go back to
+[Step 3](#step-3--enter-the-right-folder): run `cd backend` (adjust the
+path to where you are) and confirm with `dir`/`ls` that `app`, `tests`,
+`requirements.txt` show up before trying again.
 
-### `'python' não é reconhecido como um comando`
+### `'python' is not recognized as a command`
 
-Duas causas possíveis:
-1. Python não está instalado — instale em
-   [python.org/downloads](https://www.python.org/downloads/) marcando
+Two possible causes:
+1. Python isn't installed — install it from
+   [python.org/downloads](https://www.python.org/downloads/), checking
    **"Add Python to PATH"**.
-2. Python está instalado mas só responde a `py` — troque `python` por
-   `py` em todos os comandos.
+2. Python is installed but only responds to `py` — swap `python` for
+   `py` in every command.
 
-### PowerShell recusa rodar um script `.ps1`
+### PowerShell refuses to run a `.ps1` script
 
-Se você tentar rodar `.\scripts\install.ps1` (script opcional dos módulos
-`subfinder`/`httpx`, veja [Referência de comandos](#instalar-subfinder-e-httpx-opcional))
-e aparecer:
+If you try to run `.\scripts\install.ps1` (the optional script for the
+`subfinder`/`httpx` modules, see
+[Command reference](#install-subfinder-and-httpx-optional)) and see:
 
 ```text
-não pode ser carregado porque a execução de scripts foi desabilitada neste sistema
+cannot be loaded because running scripts is disabled on this system
 ```
 
-Rode isto uma única vez (permite scripts baixados só pro seu usuário, não
-muda nada pro resto do sistema):
+Run this once (allows scripts downloaded just for your user, doesn't
+change anything else on the system):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Confirme com `S`/`Y` quando perguntado, e tente rodar o script de novo.
+Confirm with `Y` when prompted, and try running the script again.
 
-### Erro dizendo que falta `--authorized` ou `--confirm-active`
+### Error saying `--authorized` or `--confirm-active` is missing
 
-**Isso não é bug — é a trava de segurança da ferramenta funcionando.**
-Ela se recusa a criar um scan sem essas duas confirmações explícitas
-(veja [Autorização e uso responsável](#autorização-e-uso-responsável)).
-Adicione as duas flags no final do comando:
+**This isn't a bug — it's the tool's safety gate working as intended.**
+It refuses to create a scan without these two explicit confirmations
+(see [Authorization and responsible use](#authorization-and-responsible-use)).
+Add both flags at the end of the command:
 
 ```powershell
-python -m app.cli scan example.com --scope "teste" --authorized --confirm-active
+python -m app.cli scan example.com --scope "test" --authorized --confirm-active
 ```
 
-### O comando parece travado, não imprime nada por um tempo
+### The command looks frozen, prints nothing for a while
 
-Normal nos primeiros 10-40 segundos — a ferramenta está mesmo fazendo
-requisições de rede reais (DNS, HTTP, consultas ao NVD). Se passar de
-uns 2 minutos sem nenhuma linha nova, aí sim pode ser um alvo com muitos
-subdomínios ou uma rede lenta; aguarde mais um pouco antes de interromper
-com `Ctrl+C`.
+Normal for the first 10-40 seconds — the tool really is making live
+network requests (DNS, HTTP, NVD queries). If it goes past about 2
+minutes with no new line, it might be a target with many subdomains or a
+slow network; wait a bit longer before interrupting with `Ctrl+C`.
 
 ### `error: externally-managed-environment`
 
@@ -290,14 +293,14 @@ error: externally-managed-environment
     install...
 ```
 
-Isso acontece quando você tenta `pip install` **fora** de um ambiente
-virtual, num Python instalado pelo gerenciador de pacotes do sistema
-(comum em Ubuntu/Debian recentes e em Python instalado via Homebrew no
-macOS). O Python se recusa a instalar pacotes direto no sistema pra não
-quebrar outras ferramentas que dependem dele.
+This happens when you try `pip install` **outside** of a virtual
+environment, on a Python installed by the system's package manager
+(common on recent Ubuntu/Debian and on Python installed via Homebrew on
+macOS). Python refuses to install packages directly on the system so it
+doesn't break other tools that depend on it.
 
-**A correção é o [Passo 4](#passo-4--criar-um-ambiente-virtual-e-instalar-as-dependências):**
-crie e ative um ambiente virtual antes de rodar `pip install`:
+**The fix is [Step 4](#step-4--create-a-virtual-environment-and-install-dependencies):**
+create and activate a virtual environment before running `pip install`:
 
 ```bash
 python3 -m venv venv
@@ -305,124 +308,132 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Confirme que `(venv)` apareceu no início da linha do terminal antes de
-instalar — é isso que indica que o ambiente virtual está ativo e que o
-`pip install` vai parar de reclamar.
+Confirm `(venv)` appeared at the start of the terminal line before
+installing — that's what indicates the virtual environment is active and
+`pip install` will stop complaining.
 
-> Existe um jeito de forçar a instalação sem ambiente virtual
-> (`pip install --break-system-packages -r requirements.txt`), mas ele
-> tem esse nome por um motivo — pode quebrar outras ferramentas Python
-> do seu sistema. Use o ambiente virtual; leva 10 segundos a mais e evita
-> esse risco.
+> There's a way to force the install without a virtual environment
+> (`pip install --break-system-packages -r requirements.txt`), but it's
+> named that way for a reason — it can break other Python tools on your
+> system. Use the virtual environment; it takes 10 extra seconds and
+> avoids that risk.
 
-### Erro de permissão ao instalar dependências
+### Permission error installing dependencies
 
-Se `pip install` falhar por permissão mesmo dentro do ambiente virtual
-ativado (raro, mas acontece se o próprio `venv` foi criado numa pasta sem
-permissão de escrita), apague a pasta `venv` e recrie num local onde seu
-usuário tenha permissão total — por exemplo, dentro da sua pasta pessoal
-(`Documentos`, `home`), não em pastas de sistema.
+If `pip install` fails on permissions even inside an activated virtual
+environment (rare, but happens if the `venv` itself was created in a
+folder without write permission), delete the `venv` folder and recreate
+it somewhere your user has full permission — for example, inside your
+home folder (`Documents`, `home`), not in system folders.
 
-### `'pip' não é reconhecido como um comando`
+### `'pip' is not recognized as a command`
 
-Com o ambiente virtual ativado (passo 4), isso não deveria acontecer. Se
-acontecer mesmo assim, troque `pip install` por
-`python -m pip install` (ou `python3 -m pip install` no macOS/Linux).
+With the virtual environment activated (step 4), this shouldn't happen.
+If it does anyway, swap `pip install` for `python -m pip install` (or
+`python3 -m pip install` on macOS/Linux).
 
-### Acham `module_error` pra `subfinder` ou `httpx_probe` no relatório
+### `module_error` for `subfinder` or `httpx_probe` in the report
 
-Esperado se você não instalou as ferramentas externas em Go — são
-opcionais. O resto do scan continua funcionando normalmente (`crtsh`,
-`whois`, `tech_fingerprint`, `cve_correlation` são Python puro, não
-dependem delas). Se quiser instalar mesmo assim, veja
-[Referência de comandos](#instalar-subfinder-e-httpx-opcional).
+Expected if you haven't installed the external Go tools — they're
+optional. The rest of the scan keeps working normally (`crtsh`, `whois`,
+`tech_fingerprint`, `cve_correlation` are pure Python, they don't depend
+on them). If you want to install them anyway, see
+[Command reference](#install-subfinder-and-httpx-optional).
 
-### `sqlite3.OperationalError: database is locked` ou erro ao apagar `dev.db`
+### `sqlite3.OperationalError: database is locked` or an error deleting `dev.db`
 
-Outro processo da ferramenta ainda está rodando (ou travou) e segurando o
-arquivo `dev.db`. Feche qualquer terminal onde a ferramenta esteja
-rodando e tente de novo. No Windows, se persistir, reinicie o terminal.
+Another instance of the tool is still running (or hung) and holding the
+`dev.db` file. Close any terminal where the tool is running and try
+again. On Windows, if it persists, restart the terminal.
 
-### Nada do que está aqui resolveu
+### Nothing here fixed it
 
-Abra uma [issue no repositório](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues)
-colando: o comando exato que você rodou, a mensagem de erro completa, e
-o resultado de `python --version`.
+Open an [issue on the repository](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues)
+with: the exact command you ran, the full error message, and the output
+of `python --version`.
 
 ---
 
-## Referência de comandos
+## Command reference
 
-### Instalar `subfinder` e `httpx` (opcional)
+### Install `subfinder` and `httpx` (optional)
 
-Ferramentas externas em Go, usadas pelos módulos de mesmo nome. Exigem o
-[Go](https://go.dev/dl/) instalado. Sem elas, esses dois módulos
-específicos registram `module_error` e o resto do scan continua normal —
-não é obrigatório instalar pra usar a ferramenta.
+External Go tools, used by the modules of the same name. Require
+[Go](https://go.dev/dl/) installed. Without them, those two specific
+modules record `module_error` and the rest of the scan continues
+normally — installing them isn't required to use the tool.
 
 ```powershell
-# Windows (de dentro de backend/)
+# Windows (from inside backend/)
 .\scripts\install.ps1
 ```
 
 ```bash
-# Linux/macOS (de dentro de backend/)
+# Linux/macOS (from inside backend/)
 ./scripts/install.sh
 ```
 
-### Configurar a chave de API do NVD (opcional, recomendado)
+### Set up an NVD API key (optional, recommended)
 
-Sem chave, o limite de consulta ao NVD é de 5 requisições a cada 30
-segundos. Com chave gratuita, sobe pra 50/30s — scans com muitas
-tecnologias ficam bem mais rápidos.
+Without a key, the NVD query limit is 5 requests every 30 seconds. With a
+free key, it goes up to 50/30s — scans with many technologies get much
+faster.
 
 ```powershell
 copy .env.example .env
 ```
 
-Abra o `.env` num editor de texto e preencha `NVD_API_KEY=` com uma chave
-gratuita obtida em
+Open `.env` in a text editor and fill in `NVD_API_KEY=` with a free key
+obtained at
 [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
-O `.env` nunca é enviado ao git (já está no `.gitignore`).
+`.env` is never committed to git (already covered by `.gitignore`).
 
-### Rodar um scan
+### Output language
+
+By default the CLI prints everything in English. For Portuguese output,
+use `--lang pt` **before** the command name:
 
 ```bash
-python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
+python -m app.cli --lang pt scan <target> --scope "<authorized scope description>" --authorized --confirm-active
 ```
 
-| Flag | Obrigatório | O que faz |
+### Run a scan
+
+```bash
+python -m app.cli scan <target> --scope "<authorized scope description>" --authorized --confirm-active
+```
+
+| Flag | Required | What it does |
 |---|---|---|
-| `<alvo>` (argumento posicional) | sim | Domínio a mapear |
-| `--scope` | sim | Descrição textual do escopo autorizado — fica salva no registro do projeto |
-| `--authorized` | sim | Confirmação explícita de que você tem autorização para testar o alvo |
-| `--confirm-active` | sim (há módulos ativos registrados) | Confirmação de que módulos que sondam o alvo diretamente podem rodar |
-| `--name` | não | Nome do projeto (padrão: o próprio alvo) |
+| `<target>` (positional argument) | yes | Domain to map |
+| `--scope` | yes | Text description of the authorized scope — saved to the project record |
+| `--authorized` | yes | Explicit confirmation that you're authorized to test the target |
+| `--confirm-active` | yes (if active modules are registered) | Confirmation that modules probing the target directly may run |
+| `--name` | no | Project name (defaults to the target itself) |
 
-Omitir qualquer flag obrigatória interrompe a execução **antes** de
-qualquer requisição ao alvo, com uma mensagem de erro explicando o que
-falta.
+Omitting any required flag stops execution **before** any request hits
+the target, with an error message explaining what's missing.
 
-### Ver o histórico
+### View history
 
 ```bash
 python -m app.cli history
 ```
 
-Lista todos os scans já executados (id, projeto, alvo, status, data).
+Lists every scan run so far (id, project, target, status, date).
 
-### Reimprimir um relatório
+### Reprint a report
 
 ```bash
 python -m app.cli report <scan_id>
 ```
 
-Reimprime o relatório formatado de um scan já concluído, sem rodar nada
-de novo — útil pra revisitar um resultado sem gastar requisições novas
-contra o alvo ou o NVD.
+Reprints the formatted report for a scan that already completed, without
+running anything again — useful for revisiting a result without spending
+new requests against the target or the NVD.
 
 <details>
-<summary><strong>Ver <code>--help</code> completo</strong></summary>
+<summary><strong>See full <code>--help</code></strong></summary>
 
 ```text
 $ python -m app.cli --help
@@ -431,10 +442,14 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 
  Recon & Investigation CLI
 
++- Options -------------------------------------------------------------------+
+| --lang                      <str>  Output language: en (default) or pt      |
+|                                    [default: en]                            |
++-----------------------------------------------------------------------------+
 +- Commands ------------------------------------------------------------------+
-| scan       Cria um projeto e roda um scan completo                         |
-| history    Lista scans já executados                                       |
-| report     Reimprime o relatório de um scan existente                      |
+| scan                                                                        |
+| history                                                                     |
+| report                                                                      |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -442,126 +457,125 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 
 ---
 
-## Autorização e uso responsável
+## Authorization and responsible use
 
 > [!IMPORTANT]
-> Esta é uma ferramenta ofensiva. Ela envia requisições reais contra o
-> alvo que você informar — descoberta de subdomínio, sondagem HTTP direta,
-> resolução DNS. **Use apenas contra sistemas que você possui ou tem
-> autorização explícita e documentada para testar** (pentest contratado,
-> bug bounty com escopo definido, seus próprios sistemas, ou domínios de
-> teste públicos como `example.com`).
+> This is an offensive tool. It sends real requests against whatever
+> target you give it — subdomain discovery, direct HTTP probing, DNS
+> resolution. **Only use it against systems you own or have explicit,
+> documented authorization to test** (a contracted pentest, a bug bounty
+> with defined scope, your own systems, or public test domains like
+> `example.com`).
 
-A ferramenta impõe duas travas técnicas, não apenas uma recomendação:
+The tool enforces two technical gates, not just a recommendation:
 
-1. **`--authorized`** — obrigatório em todo `scan`. Sem essa flag, nenhum
-   projeto é criado e nenhuma requisição sai da sua máquina.
-2. **`--confirm-active`** — obrigatório sempre que houver um módulo
-   marcado como ativo no registro (`httpx_probe` e `tech_fingerprint`
-   hoje — eles enviam requisições HTTP reais direto pro alvo, ao
-   contrário de módulos passivos como `crtsh` ou `whois`, que consultam
-   serviços de terceiros).
+1. **`--authorized`** — required on every `scan`. Without this flag, no
+   project is created and no request leaves your machine.
+2. **`--confirm-active`** — required whenever a module is marked active
+   in the registry (`httpx_probe` and `tech_fingerprint` today — they
+   send real HTTP requests directly at the target, unlike passive modules
+   like `crtsh` or `whois`, which query third-party services).
 
-Cada projeto guarda seu `scope_notes` — a descrição de escopo que você
-forneceu — junto com o resultado, então o histórico do scan carrega o
-registro da autorização declarada.
+Every project stores its `scope_notes` — the scope description you
+provided — alongside the results, so the scan history carries the record
+of declared authorization.
 
-## Como funciona por dentro
+## How it works internally
 
 ```
-recon scan → cria Project + Scan (SQLite)
+recon scan → creates Project + Scan (SQLite)
            → orchestrator.run_scan(scan_id)
-                → itera MODULE_REGISTRY ordenado por run_order
-                     10  descoberta     (crtsh, subfinder, subdomain_permutation)
-                     50  análise        (cloud_range, httpx_probe, tech_fingerprint, whois)
-                     90  correlação     (cve_correlation)
-                → cada módulo recebe (target, context) e devolve Finding[]
-                → context["subdomains"] e context["technologies"] acumulam
-                  conforme os módulos rodam, alimentando os módulos seguintes
-                → toda Finding é persistida, isolada por módulo — um módulo
-                  quebrado vira um Finding tipo module_error, o scan continua
-           → CLI imprime o relatório agrupado
+                → iterates MODULE_REGISTRY ordered by run_order
+                     10  discovery      (crtsh, subfinder, subdomain_permutation)
+                     50  analysis       (cloud_range, httpx_probe, tech_fingerprint, whois)
+                     90  correlation    (cve_correlation)
+                → each module receives (target, context) and returns Finding[]
+                → context["subdomains"] and context["technologies"] accumulate
+                  as modules run, feeding later modules
+                → every Finding is persisted, isolated per module — a broken
+                  module becomes a module_error Finding, the scan continues
+           → CLI prints the grouped report
 ```
 
-O núcleo é um **registro de plugins**: cada módulo é uma classe Python
-decorada com `@register_module`, com um atributo `run_order` (controla
-quando roda) e `is_active` (controla se exige `--confirm-active`).
-Adicionar um módulo novo não exige tocar no orquestrador — só criar o
-arquivo e importar em `app/modules/__init__.py`.
+The core is a **plugin registry**: each module is a Python class decorated
+with `@register_module`, with a `run_order` attribute (controls when it
+runs) and `is_active` (controls whether it requires `--confirm-active`).
+Adding a new module doesn't require touching the orchestrator — just
+create the file and import it in `app/modules/__init__.py`.
 
-## Catálogo de módulos
+## Module catalog
 
-| Módulo | `run_order` | Ativo? | O que faz |
+| Module | `run_order` | Active? | What it does |
 |---|---|---|---|
-| `crtsh` | 10 | não | Consulta os logs públicos de certificate transparency (crt.sh) por subdomínios que apareceram em certificados SSL emitidos |
-| `subfinder` | 10 | não | Agrega subdomínios de múltiplas fontes passivas via a ferramenta externa `subfinder` |
-| `subdomain_permutation` | 10 | não | Gera candidatos combinando um wordlist de nomes comuns de ambiente (dev, staging, admin, api, vpn...) com os subdomínios já descobertos |
-| `cloud_range` | 50 | não | Resolve cada host por DNS e verifica se o IP cai num range conhecido de AWS/GCP/Azure |
-| `httpx_probe` | 50 | **sim** | Visita cada host candidato via HTTP de verdade, confirma quais estão vivos, faz fingerprint básico via `httpx -tech-detect` |
-| `tech_fingerprint` | 50 | **sim** | Motor de 29 regras de fingerprint ativo — ver seção dedicada abaixo |
-| `whois` | 50 | não | Consulta os dados reais de registro do domínio |
-| `cve_correlation` | 90 | não | Correlaciona cada tecnologia com versão conhecida contra a API real do NVD |
+| `crtsh` | 10 | no | Queries public certificate transparency logs (crt.sh) for subdomains that appeared in issued SSL certificates |
+| `subfinder` | 10 | no | Aggregates subdomains from multiple passive sources via the external `subfinder` tool |
+| `subdomain_permutation` | 10 | no | Generates candidates by combining a wordlist of common environment names (dev, staging, admin, api, vpn...) with subdomains already discovered |
+| `cloud_range` | 50 | no | Resolves each host via DNS and checks whether the IP falls inside a known AWS/GCP/Azure range |
+| `httpx_probe` | 50 | **yes** | Visits each candidate host via real HTTP, confirms which are alive, does basic fingerprinting via `httpx -tech-detect` |
+| `tech_fingerprint` | 50 | **yes** | 29-rule active fingerprinting engine — see the dedicated section below |
+| `whois` | 50 | no | Queries the domain's real registration data |
+| `cve_correlation` | 90 | no | Correlates each technology with a known version against the real NVD API |
 
-"Ativo" = envia requisições diretamente contra o alvo/subdomínios, além
-de consultar serviços de terceiros. Módulos ativos exigem
+"Active" = sends requests directly against the target/subdomains, beyond
+just querying third-party services. Active modules require
 `--confirm-active`.
 
-## Fingerprint de tecnologia
+## Technology fingerprinting
 
-`tech_fingerprint` roda 29 regras contra 5 categorias, cada uma
-combinando um tipo de sinal (`header`, `cookie`, `meta_generator`,
-`html_regex`, `path_probe`) com um regex que extrai a versão quando ela
-está disponível:
+`tech_fingerprint` runs 29 rules across 5 categories, each combining a
+signal type (`header`, `cookie`, `meta_generator`, `html_regex`,
+`path_probe`) with a regex that extracts the version when it's available:
 
-| Categoria | Tecnologias detectadas |
+| Category | Technologies detected |
 |---|---|
-| Servidor web | nginx, Apache, Microsoft-IIS, Tomcat |
+| Web server | nginx, Apache, Microsoft-IIS, Tomcat |
 | CDN / WAF | Cloudflare, Akamai, Varnish, AWS CloudFront, Fastly |
 | Backend | PHP, Java, ASP.NET, Express, Werkzeug/Flask, Ruby on Rails, Laravel, Django |
 | CMS | WordPress, Drupal, Joomla, Shopify |
 | Frontend | Angular, React, Vue.js, Next.js, jQuery, Bootstrap |
 
-O motor é uma tabela de dados (`FINGERPRINT_RULES` em
-`app/modules/tech_fingerprint.py`) — adicionar uma tecnologia nova é
-adicionar uma entrada na tabela, sem tocar no código do motor.
+The engine is a data table (`FINGERPRINT_RULES` in
+`app/modules/tech_fingerprint.py`) — adding a new technology means adding
+a table entry, without touching the engine's code.
 
-Fingerprint de banco de dados fica deliberadamente limitado a sinais
-indiretos (cookies, headers, mensagens de erro já expostas) — detecção
-direta via técnicas de injeção é teste de vulnerabilidade, não recon, e
-está fora do escopo desta ferramenta.
+Database fingerprinting is deliberately limited to indirect signals
+(cookies, headers, error messages already exposed) — direct detection via
+injection techniques is vulnerability testing, not recon, and is out of
+scope for this tool.
 
-## Correlação de CVE
+## CVE correlation
 
-`cve_correlation` não faz busca de frase exata contra o NVD — essa
-abordagem foi tentada, testada ao vivo, e descartada por retornar quase
-zero resultados reais (a maioria das descrições de CVE não cita a versão
-como texto literal). A abordagem real:
+`cve_correlation` doesn't do exact-phrase search against the NVD — that
+approach was tried, tested live, and dropped because it returned nearly
+zero real results (most CVE descriptions don't cite the version as
+literal text). The real approach:
 
-1. Busca por palavra-chave só do **nome** da tecnologia (`keywordSearch=nginx`).
-2. Para cada CVE retornado, lê a lista de `configurations` que o NVD
-   anexa — os ranges de CPE (`versionStartIncluding`,
-   `versionEndExcluding`, etc.) que definem quais versões são realmente
-   afetadas.
-3. Só reporta o CVE se a versão detectada cair de fato dentro do range
-   (ou bater exatamente com uma versão fixada no CPE, quando não há
+1. Keyword search on just the technology's **name**
+   (`keywordSearch=nginx`).
+2. For each CVE returned, reads the `configurations` list the NVD
+   attaches — the CPE ranges (`versionStartIncluding`,
+   `versionEndExcluding`, etc.) that define which versions are actually
+   affected.
+3. Only reports the CVE if the detected version actually falls inside the
+   range (or matches exactly a version pinned in the CPE, when there's no
    range).
 
-Validado ao vivo: `nginx 1.18.0` retorna corretamente **46 CVEs reais**
-contra a API de produção do NVD.
+Validated live: `nginx 1.18.0` correctly returns **46 real CVEs** against
+the NVD's production API.
 
-## Configuração
+## Configuration
 
-Variáveis de ambiente lidas de `backend/.env` (nunca commitado —
-`.gitignore` já cobre isso):
+Environment variables read from `backend/.env` (never committed —
+already covered by `.gitignore`):
 
-| Variável | Obrigatória | Padrão | Descrição |
+| Variable | Required | Default | Description |
 |---|---|---|---|
-| `DATABASE_URL` | não | `sqlite:///./dev.db` | String de conexão SQLAlchemy. SQLite local por padrão — funciona sem nenhum banco externo |
-| `NVD_API_KEY` | não | (nenhuma) | Eleva o limite de requisição ao NVD de 5/30s pra 50/30s. Gratuita em nvd.nist.gov |
+| `DATABASE_URL` | no | `sqlite:///./dev.db` | SQLAlchemy connection string. Local SQLite by default — works without any external database |
+| `NVD_API_KEY` | no | (none) | Raises the NVD request limit from 5/30s to 50/30s. Free at nvd.nist.gov |
 
-## Dados e persistência
+## Data and persistence
 
-Três tabelas em SQLite (`app/models.py`):
+Three SQLite tables (`app/models.py`):
 
 ```
 Project(id, name, target, scope_notes, authorized, authorized_at, created_at)
@@ -569,51 +583,51 @@ Scan(id, project_id, status, started_at, finished_at)
 Finding(id, scan_id, module, type, value, data:JSON, created_at)
 ```
 
-`Finding.type` hoje inclui: `subdomain`, `whois`, `live_host`,
-`technology`, `cve`, `cloud_asset`, `module_error`. `Finding.data` guarda
-o payload específico de cada tipo (categoria/versão/confiança pra
-tecnologia; CVSS/severidade/descrição pra CVE, etc).
+`Finding.type` currently includes: `subdomain`, `whois`, `live_host`,
+`technology`, `cve`, `cloud_asset`, `module_error`. `Finding.data` holds
+the type-specific payload (category/version/confidence for technology;
+CVSS/severity/description for CVE, etc).
 
-## Testes
+## Tests
 
 ```bash
 cd backend
 pytest -v
 ```
 
-52 testes, cobrindo cada módulo isoladamente (mockando chamadas
-externas), o orquestrador (isolamento de falha por módulo, ordenação por
-`run_order`, propagação de contexto), e a CLI (`typer.testing.CliRunner`,
-mockando o orquestrador pra não depender de rede).
+60 tests, covering each module in isolation (mocking external calls), the
+orchestrator (per-module failure isolation, `run_order` ordering, context
+propagation), and the CLI (`typer.testing.CliRunner`, mocking the
+orchestrator so it doesn't depend on the network).
 
-## Limitações conhecidas
+## Known limitations
 
-- **Sem rate limiting** — nenhum módulo limita volume de requisição
-  contra o alvo. Fica na sua responsabilidade não rodar contra algo com
-  centenas de subdomínios sem supervisão.
-- **Sem log de auditoria** — requisições feitas ao alvo não ficam
-  registradas além dos próprios `Finding`s persistidos.
-- **`subfinder`/`httpx` exigem instalação manual** de ferramentas Go
-  externas — sem elas, esses dois módulos específicos ficam limitados
-  (viram `module_error`, o resto do scan continua normal).
-- **Sem cache de CVE** — toda consulta ao NVD é uma chamada de rede nova,
-  mesmo repetindo o mesmo alvo/tecnologia entre scans.
-- **`subdomain_permutation` gera candidatos não confirmados** — eles
-  aparecem como achado `subdomain` mesmo sem confirmação de que
-  respondem de verdade, a menos que `httpx_probe` esteja instalado pra
-  filtrar quem está realmente vivo.
-- **Fingerprint de CDN/frontend cobre um conjunto fixo** — plataformas
-  fora da tabela (ex: Vercel) ou variações modernas de um framework (ex:
-  Next.js App Router, que não expõe mais o marcador que a regra atual
-  procura) não são detectadas ainda.
+- **No rate limiting** — no module caps request volume against the
+  target. It's on you not to run it against something with hundreds of
+  subdomains unsupervised.
+- **No audit trail** — requests made to the target aren't logged beyond
+  the `Finding`s themselves that get persisted.
+- **`subfinder`/`httpx` require manual installation** of external Go
+  tools — without them, those two specific modules are limited (they
+  become `module_error`, the rest of the scan continues normally).
+- **No CVE cache** — every NVD query is a fresh network call, even
+  repeating the same target/technology across scans.
+- **`subdomain_permutation` generates unconfirmed candidates** — they
+  show up as a `subdomain` finding even without confirmation that they
+  actually respond, unless `httpx_probe` is installed to filter for
+  what's actually alive.
+- **CDN/frontend fingerprinting covers a fixed set** — platforms outside
+  the table (e.g. Vercel) or modern variations of a framework (e.g.
+  Next.js App Router, which no longer exposes the marker the current rule
+  looks for) aren't detected yet.
 
-## Roteiro
+## Roadmap
 
-- Rate limiting configurável por módulo/alvo
-- Log de auditoria de toda requisição enviada ao alvo
-- Cache de resultado de CVE entre scans
-- Fingerprint por hash de favicon
-- Cobertura de mais plataformas de hospedagem/CDN (Vercel, Netlify, Render)
-  e do Next.js App Router
-- Grafo de correlação de ativos (domínio → subdomínio → IP → tecnologia → CVE)
-- Catálogo de recon ativo de rede (port scan, inspeção TLS profunda)
+- Configurable rate limiting per module/target
+- Audit log of every request sent to the target
+- CVE result caching between scans
+- Favicon-hash fingerprinting
+- Coverage for more hosting/CDN platforms (Vercel, Netlify, Render) and
+  Next.js App Router
+- Asset correlation graph (domain → subdomain → IP → technology → CVE)
+- Active network recon catalog (port scan, deep TLS inspection)
