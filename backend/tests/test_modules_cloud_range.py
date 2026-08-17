@@ -68,3 +68,33 @@ def test_rate_limiter_paces_requests_between_hosts():
         )
 
     assert mock_wait.call_count == 2
+
+
+def test_out_of_scope_hosts_are_skipped_after_resolution():
+    scope = {"include": ["example.com"], "exclude": ["blocked.example.com"]}
+
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname", return_value="3.5.140.1"
+    ):
+        findings = CloudRangeModule().run(
+            "example.com", {"subdomains": {"blocked.example.com"}, "scope": scope}
+        )
+
+    out_of_scope = [f for f in findings if f.type == "out_of_scope"]
+    assert [f.value for f in out_of_scope] == ["blocked.example.com"]
+    assert out_of_scope[0].data == {"module": "cloud_range"}
+    cloud_assets = [f for f in findings if f.type == "cloud_asset"]
+    assert [f.value for f in cloud_assets] == ["example.com"]
+
+
+def test_cidr_scope_entry_matches_resolved_ip():
+    scope = {"include": ["3.5.128.0/18"]}
+
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname", return_value="3.5.140.1"
+    ):
+        findings = CloudRangeModule().run("example.com", {"scope": scope})
+
+    cloud_assets = [f for f in findings if f.type == "cloud_asset"]
+    assert [f.value for f in cloud_assets] == ["example.com"]
+    assert not any(f.type == "out_of_scope" for f in findings)
