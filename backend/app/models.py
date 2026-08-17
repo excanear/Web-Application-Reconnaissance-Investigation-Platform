@@ -12,6 +12,7 @@ class Project(Base):
     name = Column(String, nullable=False)
     target = Column(String, nullable=False)
     scope_notes = Column(Text, nullable=False)
+    scope = Column(JSON, nullable=False, default=dict)
     authorized = Column(Boolean, nullable=False, default=False)
     authorized_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utc_now)

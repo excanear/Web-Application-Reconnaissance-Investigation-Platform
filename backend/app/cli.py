@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from app import i18n, models
-from app.db import Base, SessionLocal, engine
+from app.db import SessionLocal, ensure_schema
 from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
 from app.timeutil import utc_now
@@ -18,7 +18,7 @@ if hasattr(sys.stdout, "reconfigure"):
 app = typer.Typer(help="Recon & Investigation CLI")
 console = Console()
 
-Base.metadata.create_all(bind=engine)
+ensure_schema()
 
 DESCRIPTION_MAX_LENGTH = 200
 
