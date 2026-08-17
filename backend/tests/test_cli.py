@@ -13,6 +13,7 @@ def test_scan_requires_authorized_flag():
     result = runner.invoke(app, ["scan", "example.com", "--scope", "ok"])
 
     assert result.exit_code == 1
+    assert "Error:" in result.output
     assert "authorized" in result.output.lower()
 
 
@@ -20,7 +21,7 @@ def test_scan_requires_confirm_active_when_active_modules_are_registered():
     result = runner.invoke(app, ["scan", "example.com", "--scope", "ok", "--authorized"])
 
     assert result.exit_code == 1
-    assert "confirm-active" in result.output.lower() or "ativo" in result.output.lower()
+    assert "confirm-active" in result.output.lower()
 
 
 def test_scan_rejects_blank_scope():
@@ -30,7 +31,47 @@ def test_scan_rejects_blank_scope():
     )
 
     assert result.exit_code == 1
-    assert "scope" in result.output.lower() or "escopo" in result.output.lower()
+    assert "scope" in result.output.lower()
+
+
+def test_scan_errors_are_translated_to_portuguese_with_lang_flag():
+    result = runner.invoke(app, ["--lang", "pt", "scan", "example.com", "--scope", "ok"])
+
+    assert result.exit_code == 1
+    assert "Erro:" in result.output
+    assert "obrigatorio" in result.output.lower()
+
+
+def test_report_headers_are_translated_to_portuguese_with_lang_flag():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Lang Co", target="lang.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="tech_fingerprint",
+                type="technology",
+                value="lang.example.com",
+                data={"category": "web_server", "name": "nginx", "version": "1.18.0", "confidence": "high"},
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["--lang", "pt", "report", str(scan_id)])
+
+    assert result.exit_code == 0
+    assert "Tecnologias" in result.output
+    assert "Versao" in result.output
 
 
 def test_scan_creates_project_and_scan_then_runs_orchestrator():

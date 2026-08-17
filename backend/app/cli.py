@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from app import models
+from app import i18n, models
 from app.db import Base, SessionLocal, engine
 from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
@@ -31,6 +31,15 @@ def _truncate(text: str, max_length: int = DESCRIPTION_MAX_LENGTH) -> str:
 SEVERITY_STYLE = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LOW": "green"}
 
 
+@app.callback()
+def main(
+    lang: str = typer.Option(
+        i18n.DEFAULT_LANG, "--lang", help="Output language: en (default) or pt"
+    ),
+) -> None:
+    i18n.set_lang(lang)
+
+
 @app.command()
 def scan(
     target: str = typer.Argument(..., help="Domain/target to scan"),
@@ -44,18 +53,17 @@ def scan(
     name: str = typer.Option(None, "--name", help="Project name (defaults to target)"),
 ) -> None:
     if not authorized:
-        console.print("[red]Erro:[/red] --authorized e obrigatorio para criar um projeto.")
+        console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('authorized_required')}")
         raise typer.Exit(code=1)
 
     if not scope.strip():
-        console.print("[red]Erro:[/red] --scope nao pode ser vazio.")
+        console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('scope_empty')}")
         raise typer.Exit(code=1)
 
     has_active_modules = any(cls.is_active for cls in MODULE_REGISTRY.values())
     if has_active_modules and not confirm_active:
         console.print(
-            "[red]Erro:[/red] este scan inclui modulos ativos que sondam o alvo diretamente. "
-            "Use --confirm-active para prosseguir."
+            f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('active_modules_confirm_required')}"
         )
         raise typer.Exit(code=1)
 
@@ -79,7 +87,7 @@ def scan(
         db.close()
 
     def on_progress(module_name: str) -> None:
-        console.print(f"[cyan]Rodando[/cyan] {module_name}...")
+        console.print(f"[cyan]{i18n.t('running_module')}[/cyan] {module_name}...")
 
     run_scan(scan_id, progress_callback=on_progress)
 
@@ -91,12 +99,12 @@ def history() -> None:
     db = SessionLocal()
     try:
         scans = db.query(models.Scan).order_by(models.Scan.id.desc()).all()
-        table = Table(title="Historico de scans")
-        table.add_column("ID")
-        table.add_column("Projeto")
-        table.add_column("Alvo")
-        table.add_column("Status")
-        table.add_column("Iniciado em")
+        table = Table(title=i18n.t("history_title"))
+        table.add_column(i18n.t("history_col_id"))
+        table.add_column(i18n.t("history_col_project"))
+        table.add_column(i18n.t("history_col_target"))
+        table.add_column(i18n.t("history_col_status"))
+        table.add_column(i18n.t("history_col_started_at"))
         for scan_row in scans:
             table.add_row(
                 str(scan_row.id),
@@ -120,14 +128,14 @@ def _print_report(scan_id: int) -> None:
     try:
         scan_row = db.get(models.Scan, scan_id)
         if scan_row is None:
-            console.print(f"[red]Scan {scan_id} nao encontrado.[/red]")
+            console.print(f"[red]{i18n.t('scan_not_found', scan_id=scan_id)}[/red]")
             raise typer.Exit(code=1)
         findings = list(scan_row.findings)
         status = scan_row.status
     finally:
         db.close()
 
-    console.print(f"\n[bold]Scan #{scan_id}[/bold] - status: {status}")
+    console.print(f"\n[bold]Scan #{scan_id}[/bold] - {i18n.t('status_label', status=status)}")
 
     technologies = [f for f in findings if f.type == "technology"]
     cves = sorted(
@@ -137,9 +145,9 @@ def _print_report(scan_id: int) -> None:
     other = [f for f in findings if f.type not in ("technology", "cve")]
 
     if technologies:
-        table = Table(title="Tecnologias")
-        for column in ("Categoria", "Nome", "Versao", "Confianca", "Host"):
-            table.add_column(column)
+        table = Table(title=i18n.t("technologies_title"))
+        for key in ("tech_col_category", "tech_col_name", "tech_col_version", "tech_col_confidence", "tech_col_host"):
+            table.add_column(i18n.t(key))
         for f in technologies:
             table.add_row(
                 str(f.data.get("category", "")),
@@ -151,9 +159,9 @@ def _print_report(scan_id: int) -> None:
         console.print(table)
 
     if cves:
-        table = Table(title="CVEs")
-        for column in ("CVE", "Severidade", "CVSS", "Tecnologia", "Descricao"):
-            table.add_column(column)
+        table = Table(title=i18n.t("cves_title"))
+        for key in ("cve_col_id", "cve_col_severity", "cve_col_cvss", "cve_col_technology", "cve_col_description"):
+            table.add_column(i18n.t(key))
         for f in cves:
             severity = str(f.data.get("severity") or "")
             style = SEVERITY_STYLE.get(severity)
@@ -168,9 +176,9 @@ def _print_report(scan_id: int) -> None:
         console.print(table)
 
     if other:
-        table = Table(title="Outros achados")
-        for column in ("Tipo", "Valor", "Modulo"):
-            table.add_column(column)
+        table = Table(title=i18n.t("other_findings_title"))
+        for key in ("other_col_type", "other_col_value", "other_col_module"):
+            table.add_column(i18n.t(key))
         for f in other:
             table.add_row(f.type, f.value, f.module)
         console.print(table)
