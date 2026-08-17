@@ -1,3 +1,4 @@
+import re
 import sys
 
 import typer
@@ -8,6 +9,7 @@ from app import i18n, models
 from app.db import SessionLocal, ensure_schema
 from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
+from app.scope import is_in_scope
 from app.timeutil import utc_now
 
 # NVD descriptions can contain characters legacy Windows consoles (cp1252)
@@ -21,6 +23,7 @@ console = Console()
 ensure_schema()
 
 DESCRIPTION_MAX_LENGTH = 200
+SCOPE_WINDOW_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)-([01]\d|2[0-3]):([0-5]\d)$")
 
 
 def _truncate(text: str, max_length: int = DESCRIPTION_MAX_LENGTH) -> str:
@@ -59,6 +62,15 @@ def scan(
         "--circuit-breaker-threshold",
         help="Consecutive failures against a target before a module stops probing it",
     ),
+    scope_include: list[str] = typer.Option(
+        None, "--scope-include", help="Domain pattern or CIDR explicitly in scope (repeatable)"
+    ),
+    scope_exclude: list[str] = typer.Option(
+        None, "--scope-exclude", help="Domain pattern or CIDR explicitly excluded (repeatable)"
+    ),
+    scope_window: str = typer.Option(
+        None, "--scope-window", help="Allowed UTC time window, e.g. 09:00-18:00"
+    ),
 ) -> None:
     if not authorized:
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('authorized_required')}")
@@ -75,12 +87,33 @@ def scan(
         )
         raise typer.Exit(code=1)
 
+    include = list(scope_include) if scope_include else [target, f"*.{target}"]
+    exclude = list(scope_exclude) if scope_exclude else []
+
+    allowed_window = None
+    if scope_window:
+        match = SCOPE_WINDOW_RE.match(scope_window.strip())
+        if not match:
+            console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('scope_window_invalid')}")
+            raise typer.Exit(code=1)
+        start_str, end_str = scope_window.strip().split("-", 1)
+        allowed_window = {"start": start_str.strip(), "end": end_str.strip()}
+
+    scope_dict = {"include": include, "exclude": exclude}
+    if allowed_window is not None:
+        scope_dict["allowed_window"] = allowed_window
+
+    if not is_in_scope(target, None, scope_dict):
+        console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('target_excluded_from_scope')}")
+        raise typer.Exit(code=1)
+
     db = SessionLocal()
     try:
         project = models.Project(
             name=name or target,
             target=target,
             scope_notes=scope,
+            scope=scope_dict,
             authorized=True,
             authorized_at=utc_now(),
         )

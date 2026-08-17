@@ -15,6 +15,14 @@ STRINGS = {
             "this scan includes active modules that probe the target directly. "
             "Use --confirm-active to proceed."
         ),
+        "target_excluded_from_scope": (
+            "the target itself falls outside the declared scope "
+            "(--scope-include/--scope-exclude) - refusing to create a "
+            "project with nothing left to test."
+        ),
+        "scope_window_invalid": (
+            "--scope-window must be in the form HH:MM-HH:MM (e.g. 09:00-18:00)."
+        ),
         "running_module": "Running",
         "scan_not_found": "Scan {scan_id} not found.",
         "status_label": "status: {status}",
@@ -48,6 +56,14 @@ STRINGS = {
         "active_modules_confirm_required": (
             "este scan inclui modulos ativos que sondam o alvo diretamente. "
             "Use --confirm-active para prosseguir."
+        ),
+        "target_excluded_from_scope": (
+            "o proprio alvo cai fora do escopo declarado "
+            "(--scope-include/--scope-exclude) - recusando criar um "
+            "projeto sem nada pra testar."
+        ),
+        "scope_window_invalid": (
+            "--scope-window deve estar no formato HH:MM-HH:MM (ex: 09:00-18:00)."
         ),
         "running_module": "Rodando",
         "scan_not_found": "Scan {scan_id} nao encontrado.",

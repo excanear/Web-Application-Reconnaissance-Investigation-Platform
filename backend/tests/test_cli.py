@@ -246,6 +246,107 @@ def test_report_truncates_long_cve_descriptions():
     # only assert our own truncation actually ran (full string never shows).
 
 
+def test_scan_defaults_scope_to_target_and_wildcard_subdomains():
+    with patch("app.cli.run_scan"):
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    db = SessionLocal()
+    try:
+        project = db.query(models.Project).filter_by(target="example.com").order_by(
+            models.Project.id.desc()
+        ).first()
+        assert project.scope["include"] == ["example.com", "*.example.com"]
+        assert project.scope["exclude"] == []
+    finally:
+        db.close()
+
+
+def test_scan_persists_custom_scope_include_exclude_and_window():
+    with patch("app.cli.run_scan"):
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+                "--scope-include",
+                "example.com",
+                "--scope-include",
+                "*.example.com",
+                "--scope-exclude",
+                "internal.example.com",
+                "--scope-window",
+                "09:00-18:00",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    db = SessionLocal()
+    try:
+        project = db.query(models.Project).filter_by(target="example.com").order_by(
+            models.Project.id.desc()
+        ).first()
+        assert project.scope["include"] == ["example.com", "*.example.com"]
+        assert project.scope["exclude"] == ["internal.example.com"]
+        assert project.scope["allowed_window"] == {"start": "09:00", "end": "18:00"}
+    finally:
+        db.close()
+
+
+def test_scan_rejects_when_target_itself_is_excluded_from_scope():
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "example.com",
+            "--scope",
+            "authorized test scope",
+            "--authorized",
+            "--confirm-active",
+            "--scope-exclude",
+            "example.com",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "scope" in result.output.lower()
+
+
+def test_scan_rejects_malformed_scope_window():
+    result = runner.invoke(
+        app,
+        [
+            "scan",
+            "example.com",
+            "--scope",
+            "authorized test scope",
+            "--authorized",
+            "--confirm-active",
+            "--scope-window",
+            "not-a-window",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Error:" in result.output
+    assert "scope-window" in result.output.lower()
+
+
 def test_report_never_crashes_on_a_description_with_unencodable_characters():
     tricky_description = "vuln with a rewrite‑directive and ASLR.‑"
 
