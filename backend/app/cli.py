@@ -51,6 +51,14 @@ def scan(
         False, "--confirm-active", help="Confirm active/intrusive modules may run"
     ),
     name: str = typer.Option(None, "--name", help="Project name (defaults to target)"),
+    max_requests_per_second: float = typer.Option(
+        5.0, "--max-requests-per-second", help="Cap request pace against the target/subdomains"
+    ),
+    circuit_breaker_threshold: int = typer.Option(
+        5,
+        "--circuit-breaker-threshold",
+        help="Consecutive failures against a target before a module stops probing it",
+    ),
 ) -> None:
     if not authorized:
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('authorized_required')}")
@@ -89,7 +97,12 @@ def scan(
     def on_progress(module_name: str) -> None:
         console.print(f"[cyan]{i18n.t('running_module')}[/cyan] {module_name}...")
 
-    run_scan(scan_id, progress_callback=on_progress)
+    run_scan(
+        scan_id,
+        progress_callback=on_progress,
+        rate_limit=max_requests_per_second,
+        circuit_breaker_threshold=circuit_breaker_threshold,
+    )
 
     _print_report(scan_id)
 

@@ -5,8 +5,16 @@ from app import models
 from app.modules.base import Finding, MODULE_REGISTRY
 from app.timeutil import utc_now
 
+DEFAULT_RATE_LIMIT = 5.0
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 
-def run_scan(scan_id: int, progress_callback: Callable[[str], None] | None = None) -> None:
+
+def run_scan(
+    scan_id: int,
+    progress_callback: Callable[[str], None] | None = None,
+    rate_limit: float = DEFAULT_RATE_LIMIT,
+    circuit_breaker_threshold: int = DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+) -> None:
     progress_callback = progress_callback or (lambda module_name: None)
     db = SessionLocal()
     scan = db.get(models.Scan, scan_id)
@@ -22,7 +30,12 @@ def run_scan(scan_id: int, progress_callback: Callable[[str], None] | None = Non
         db.commit()
 
         target = scan.project.target
-        context: dict = {"subdomains": set(), "technologies": []}
+        context: dict = {
+            "subdomains": set(),
+            "technologies": [],
+            "rate_limit": rate_limit,
+            "circuit_breaker_threshold": circuit_breaker_threshold,
+        }
 
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
         for module_cls in ordered_modules:

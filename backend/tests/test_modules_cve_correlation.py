@@ -172,6 +172,29 @@ def test_isolates_one_failing_technology_query_and_keeps_the_rest(monkeypatch):
     assert findings[0].value == "CVE-2021-23017"
 
 
+def test_circuit_breaker_trips_after_threshold_consecutive_query_failures(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    import requests
+
+    context = {
+        "technologies": [{"name": f"tech{i}", "version": "1.0"} for i in range(5)],
+        "circuit_breaker_threshold": 2,
+    }
+
+    with patch(
+        "app.modules.cve_correlation.requests.get",
+        side_effect=requests.RequestException("nvd is down"),
+    ):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    assert tripped[0].data["module"] == "cve_correlation"
+    assert tripped[0].data["skipped_technologies"] == 3
+
+
 def test_sleeps_between_requests_to_respect_nvd_rate_limit(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     sleep_calls = []

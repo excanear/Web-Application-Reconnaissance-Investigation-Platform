@@ -3,6 +3,10 @@ import re
 import requests
 
 from app.modules.base import Finding, ReconModule, register_module
+from app.ratelimit import CircuitBreaker, RateLimiter
+
+DEFAULT_RATE_LIMIT = 5.0
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 
 # Seed ruleset -- extensible without touching the engine below. Each rule:
 # category, name, match_type (header/cookie/meta_generator/html_regex/
@@ -195,26 +199,47 @@ class TechFingerprintModule(ReconModule):
     is_active = True
 
     def run(self, target: str, context: dict) -> list[Finding]:
-        hosts = context.get("subdomains", set()) | {target}
+        hosts = sorted(context.get("subdomains", set()) | {target})
+        limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))
+        breaker = CircuitBreaker(
+            context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
+        )
+
         findings: list[Finding] = []
-        for host in sorted(hosts):
-            findings.extend(self._fingerprint_host(host))
+        for index, host in enumerate(hosts):
+            limiter.wait()
+            host_findings, reached_host = self._fingerprint_host(host, limiter)
+            findings.extend(host_findings)
+
+            if reached_host:
+                breaker.record_success()
+                continue
+
+            if breaker.record_failure():
+                findings.append(
+                    Finding(
+                        type="circuit_breaker_tripped",
+                        value=host,
+                        data={"module": self.name, "skipped_hosts": len(hosts) - index - 1},
+                    )
+                )
+                break
         return findings
 
-    def _fingerprint_host(self, host: str) -> list[Finding]:
+    def _fingerprint_host(self, host: str, limiter: RateLimiter) -> tuple[list[Finding], bool]:
         try:
             response = requests.get(f"https://{host}/", timeout=REQUEST_TIMEOUT)
         except requests.RequestException:
-            return []
+            return [], False
 
         findings = []
         for rule in FINGERPRINT_RULES:
-            finding = self._apply_rule(host, rule, response)
+            finding = self._apply_rule(host, rule, response, limiter)
             if finding is not None:
                 findings.append(finding)
-        return findings
+        return findings, True
 
-    def _apply_rule(self, host: str, rule: dict, response) -> Finding | None:
+    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter) -> Finding | None:
         if rule["match_type"] == "header":
             value = response.headers.get(rule["header"], "")
             match = re.search(rule["pattern"], value, re.IGNORECASE)
@@ -247,6 +272,7 @@ class TechFingerprintModule(ReconModule):
             return self._finding(host, rule, match, source="html_regex")
 
         if rule["match_type"] == "path_probe":
+            limiter.wait()
             try:
                 probe = requests.get(f"https://{host}{rule['path']}", timeout=REQUEST_TIMEOUT)
             except requests.RequestException:

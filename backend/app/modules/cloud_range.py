@@ -2,6 +2,10 @@ import ipaddress
 import socket
 
 from app.modules.base import Finding, ReconModule, register_module
+from app.ratelimit import CircuitBreaker, RateLimiter
+
+DEFAULT_RATE_LIMIT = 5.0
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 
 # Small illustrative sample of public cloud ranges, not an authoritative or
 # exhaustive list (each provider publishes machine-readable full lists that
@@ -21,15 +25,30 @@ class CloudRangeModule(ReconModule):
     name = "cloud_range"
 
     def run(self, target: str, context: dict) -> list[Finding]:
-        hosts = context.get("subdomains", set()) | {target}
+        hosts = sorted(context.get("subdomains", set()) | {target})
+        limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))
+        breaker = CircuitBreaker(
+            context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
+        )
         findings = []
 
-        for host in sorted(hosts):
+        for index, host in enumerate(hosts):
+            limiter.wait()
             try:
                 ip = socket.gethostbyname(host)
             except OSError:
+                if breaker.record_failure():
+                    findings.append(
+                        Finding(
+                            type="circuit_breaker_tripped",
+                            value=host,
+                            data={"module": self.name, "skipped_hosts": len(hosts) - index - 1},
+                        )
+                    )
+                    break
                 continue
 
+            breaker.record_success()
             provider = self._match_provider(ip)
             if provider is not None:
                 findings.append(

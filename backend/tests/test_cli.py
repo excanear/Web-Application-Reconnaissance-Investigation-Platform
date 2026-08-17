@@ -102,6 +102,32 @@ def test_scan_creates_project_and_scan_then_runs_orchestrator():
     finally:
         db.close()
 
+    assert mock_run_scan.call_args.kwargs["rate_limit"] == 5.0
+    assert mock_run_scan.call_args.kwargs["circuit_breaker_threshold"] == 5
+
+
+def test_scan_forwards_custom_rate_limit_and_circuit_breaker_threshold():
+    with patch("app.cli.run_scan") as mock_run_scan:
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+                "--max-requests-per-second",
+                "2.5",
+                "--circuit-breaker-threshold",
+                "3",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_run_scan.call_args.kwargs["rate_limit"] == 2.5
+    assert mock_run_scan.call_args.kwargs["circuit_breaker_threshold"] == 3
+
 
 def test_history_lists_past_scans():
     db = SessionLocal()

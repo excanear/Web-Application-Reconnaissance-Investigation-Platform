@@ -3,6 +3,8 @@ import subprocess
 
 from app.modules.base import Finding, ReconModule, register_module
 
+DEFAULT_RATE_LIMIT = 5.0
+
 
 @register_module
 class HttpxProbeModule(ReconModule):
@@ -11,8 +13,20 @@ class HttpxProbeModule(ReconModule):
 
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = context.get("subdomains", set()) | {target}
+        rate_limit = context.get("rate_limit", DEFAULT_RATE_LIMIT)
+        # httpx paces its own requests natively -- pass our limit through
+        # instead of reimplementing pacing for a subprocess we don't
+        # control the request loop of.
+        command = [
+            "httpx",
+            "-silent",
+            "-json",
+            "-tech-detect",
+            "-rate-limit",
+            str(max(1, round(rate_limit))),
+        ]
         result = subprocess.run(
-            ["httpx", "-silent", "-json", "-tech-detect"],
+            command,
             input="\n".join(sorted(hosts)),
             capture_output=True,
             text=True,

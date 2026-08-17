@@ -4,6 +4,7 @@ import requests
 
 from app.config import settings
 from app.modules.base import Finding, ReconModule, register_module
+from app.ratelimit import CircuitBreaker
 
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 REQUEST_TIMEOUT = 30
@@ -11,6 +12,9 @@ REQUEST_TIMEOUT = 30
 # NVD rate limits: 5 req/30s unauthenticated, 50 req/30s with an API key.
 UNAUTHENTICATED_DELAY_SECONDS = 6.0
 AUTHENTICATED_DELAY_SECONDS = 0.6
+
+DEFAULT_RATE_LIMIT = 5.0
+DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 
 CVSS_METRIC_KEYS = ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2")
 
@@ -71,22 +75,47 @@ class CveCorrelationModule(ReconModule):
 
     def run(self, target: str, context: dict) -> list[Finding]:
         technologies = context.get("technologies", [])
+        rate_limit = context.get("rate_limit", DEFAULT_RATE_LIMIT)
+        general_min_interval = 1.0 / rate_limit
+        nvd_delay = (
+            AUTHENTICATED_DELAY_SECONDS if settings.nvd_api_key else UNAUTHENTICATED_DELAY_SECONDS
+        )
+        breaker = CircuitBreaker(
+            context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
+        )
         findings: list[Finding] = []
 
-        for tech in technologies:
+        for index, tech in enumerate(technologies):
             name = tech.get("name")
             version = tech.get("version")
             if not name or not version:
                 continue
 
-            findings.extend(self._query_cves(name, version))
-            time.sleep(
-                AUTHENTICATED_DELAY_SECONDS if settings.nvd_api_key else UNAUTHENTICATED_DELAY_SECONDS
-            )
+            tech_findings, succeeded = self._query_cves(name, version)
+            findings.extend(tech_findings)
+            # The NVD-specific delay protects the shared NVD API; the
+            # general rate limit also applies on top of it, so we sleep
+            # whichever is stricter.
+            time.sleep(max(nvd_delay, general_min_interval))
+
+            if succeeded:
+                breaker.record_success()
+            elif breaker.record_failure():
+                findings.append(
+                    Finding(
+                        type="circuit_breaker_tripped",
+                        value=target,
+                        data={
+                            "module": self.name,
+                            "skipped_technologies": len(technologies) - index - 1,
+                        },
+                    )
+                )
+                break
 
         return findings
 
-    def _query_cves(self, name: str, version: str) -> list[Finding]:
+    def _query_cves(self, name: str, version: str) -> tuple[list[Finding], bool]:
         # keywordSearch does a literal free-text match: searching "{name}
         # {version}" together returns almost nothing, since most CVE
         # descriptions don't quote the exact version. Search by name only,
@@ -103,14 +132,14 @@ class CveCorrelationModule(ReconModule):
             response.raise_for_status()
             payload = response.json()
         except requests.RequestException:
-            return []
+            return [], False
 
         findings = []
         for vulnerability in payload.get("vulnerabilities", []):
             cve = vulnerability.get("cve", {})
             if _cve_matches_version(cve, name, version):
                 findings.append(self._finding_from_cve(cve, name, version))
-        return findings
+        return findings, True
 
     @staticmethod
     def _finding_from_cve(cve: dict, tech_name: str, tech_version: str) -> Finding:

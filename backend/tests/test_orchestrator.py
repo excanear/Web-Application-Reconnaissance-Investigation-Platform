@@ -190,6 +190,52 @@ def test_run_scan_calls_progress_callback_with_each_module_name_in_run_order():
     assert seen_names == module_names_by_run_order
 
 
+def test_run_scan_threads_rate_limit_and_circuit_breaker_threshold_into_context():
+    seen_context = {}
+
+    class _ContextCapturingModule(ReconModule):
+        name = "_test_context_capturing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            seen_context["rate_limit"] = context.get("rate_limit")
+            seen_context["circuit_breaker_threshold"] = context.get("circuit_breaker_threshold")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_ContextCapturingModule)
+        with _mock_all_modules(exclude={_ContextCapturingModule.name}):
+            run_scan(scan_id, rate_limit=2.5, circuit_breaker_threshold=3)
+    finally:
+        del MODULE_REGISTRY[_ContextCapturingModule.name]
+
+    assert seen_context == {"rate_limit": 2.5, "circuit_breaker_threshold": 3}
+
+
+def test_run_scan_uses_default_rate_limit_and_threshold_when_not_specified():
+    seen_context = {}
+
+    class _DefaultContextCapturingModule(ReconModule):
+        name = "_test_default_context_capturing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            seen_context["rate_limit"] = context.get("rate_limit")
+            seen_context["circuit_breaker_threshold"] = context.get("circuit_breaker_threshold")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_DefaultContextCapturingModule)
+        with _mock_all_modules(exclude={_DefaultContextCapturingModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_DefaultContextCapturingModule.name]
+
+    assert seen_context == {"rate_limit": 5.0, "circuit_breaker_threshold": 5}
+
+
 def test_run_scan_works_without_a_progress_callback():
     scan_id = _create_authorized_project_and_scan()
 

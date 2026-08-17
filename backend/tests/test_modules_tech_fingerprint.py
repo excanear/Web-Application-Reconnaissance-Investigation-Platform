@@ -144,6 +144,46 @@ def test_unreachable_host_is_skipped_without_crashing():
     assert findings == []
 
 
+def test_circuit_breaker_trips_after_threshold_consecutive_failures_and_skips_remaining_hosts():
+    import requests
+
+    subdomains = {f"host{i}.example.com" for i in range(5)}
+
+    with patch(
+        "app.modules.tech_fingerprint.requests.get",
+        side_effect=requests.RequestException("down"),
+    ):
+        findings = TechFingerprintModule().run(
+            "example.com", {"subdomains": subdomains, "circuit_breaker_threshold": 2}
+        )
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    assert tripped[0].data["module"] == "tech_fingerprint"
+    # 6 hosts total (target + 5 subdomains); breaker opens on the 2nd
+    # consecutive failure, so 4 hosts never get probed.
+    assert tripped[0].data["skipped_hosts"] == 4
+
+
+def test_rate_limiter_paces_requests_between_hosts():
+    base = _response(headers={"Server": "nginx/1.18.0"})
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get), patch(
+        "app.modules.tech_fingerprint.RateLimiter.wait"
+    ) as mock_wait:
+        TechFingerprintModule().run(
+            "example.com", {"subdomains": {"a.example.com"}, "rate_limit": 10.0}
+        )
+
+    assert mock_wait.call_count >= 2
+
+
 def test_probes_discovered_subdomains_alongside_target():
     base = _response(headers={"Server": "nginx/1.18.0"})
     probe_404 = _response(status_code=404)

@@ -18,3 +18,12 @@ def _cleanup_test_db():
         os.remove(_db_path)
     except OSError:
         pass
+
+
+@pytest.fixture(autouse=True)
+def _no_real_sleep(monkeypatch):
+    # Modules that rate-limit or pace NVD requests call time.sleep for real;
+    # tests exercising those loops shouldn't actually wait. Tests asserting
+    # specific sleep durations patch app.ratelimit.time.sleep locally, which
+    # overrides this for the duration of their own `with` block.
+    monkeypatch.setattr("time.sleep", lambda seconds: None)

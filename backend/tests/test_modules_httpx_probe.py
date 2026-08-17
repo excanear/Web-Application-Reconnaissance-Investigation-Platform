@@ -30,3 +30,21 @@ def test_httpx_probe_falls_back_to_target_when_no_subdomains_discovered():
         HttpxProbeModule().run("example.com", {})
 
     assert mock_run.call_args.kwargs["input"] == "example.com"
+
+
+def test_httpx_probe_passes_configured_rate_limit_to_the_subprocess():
+    fake_result = MagicMock(stdout="")
+    with patch("app.modules.httpx_probe.subprocess.run", return_value=fake_result) as mock_run:
+        HttpxProbeModule().run("example.com", {"rate_limit": 15.0})
+
+    command = mock_run.call_args.args[0]
+    assert command[command.index("-rate-limit") + 1] == "15"
+
+
+def test_httpx_probe_defaults_rate_limit_when_not_configured():
+    fake_result = MagicMock(stdout="")
+    with patch("app.modules.httpx_probe.subprocess.run", return_value=fake_result) as mock_run:
+        HttpxProbeModule().run("example.com", {})
+
+    command = mock_run.call_args.args[0]
+    assert command[command.index("-rate-limit") + 1] == "5"
