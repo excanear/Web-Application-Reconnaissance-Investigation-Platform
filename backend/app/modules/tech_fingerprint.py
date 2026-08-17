@@ -4,6 +4,7 @@ import requests
 
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
+from app.scope import is_in_scope
 
 DEFAULT_RATE_LIMIT = 5.0
 DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
@@ -200,6 +201,7 @@ class TechFingerprintModule(ReconModule):
 
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = sorted(context.get("subdomains", set()) | {target})
+        scope = context.get("scope")
         limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))
         breaker = CircuitBreaker(
             context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
@@ -207,6 +209,12 @@ class TechFingerprintModule(ReconModule):
 
         findings: list[Finding] = []
         for index, host in enumerate(hosts):
+            if scope is not None and not is_in_scope(host, None, scope):
+                findings.append(
+                    Finding(type="out_of_scope", value=host, data={"module": self.name})
+                )
+                continue
+
             limiter.wait()
             host_findings, reached_host = self._fingerprint_host(host, limiter)
             findings.extend(host_findings)

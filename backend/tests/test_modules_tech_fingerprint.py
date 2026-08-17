@@ -200,3 +200,26 @@ def test_probes_discovered_subdomains_alongside_target():
 
     hosts = {f.value for f in findings}
     assert hosts == {"example.com", "a.example.com"}
+
+
+def test_out_of_scope_hosts_are_skipped_and_recorded_without_requests():
+    base = _response(headers={"Server": "nginx/1.18.0"})
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        assert "blocked.example.com" not in url
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    scope = {"include": ["example.com"], "exclude": ["blocked.example.com"]}
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run(
+            "example.com", {"subdomains": {"blocked.example.com"}, "scope": scope}
+        )
+
+    out_of_scope = [f for f in findings if f.type == "out_of_scope"]
+    assert [f.value for f in out_of_scope] == ["blocked.example.com"]
+    assert out_of_scope[0].data == {"module": "tech_fingerprint"}
+    assert any(f.data.get("name") == "nginx" for f in findings if f.type == "technology")
