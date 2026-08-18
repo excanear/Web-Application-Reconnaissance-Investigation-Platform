@@ -98,3 +98,30 @@ def test_cidr_scope_entry_matches_resolved_ip():
     cloud_assets = [f for f in findings if f.type == "cloud_asset"]
     assert [f.value for f in cloud_assets] == ["example.com"]
     assert not any(f.type == "out_of_scope" for f in findings)
+
+
+def test_records_a_successful_resolution_to_the_audit_log():
+    from app.audit import AuditLog
+
+    audit = AuditLog()
+    with patch("app.modules.cloud_range.socket.gethostbyname", return_value="3.5.140.1"):
+        CloudRangeModule().run("example.com", {"audit": audit})
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["module"] == "cloud_range"
+    assert audit.entries[0]["target"] == "example.com"
+    assert audit.entries[0]["outcome"] == "resolved: 3.5.140.1"
+    assert audit.entries[0]["url"] is None
+
+
+def test_records_a_failed_resolution_to_the_audit_log():
+    from app.audit import AuditLog
+
+    audit = AuditLog()
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname", side_effect=OSError("no dns")
+    ):
+        CloudRangeModule().run("example.com", {"audit": audit})
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["outcome"] == "error: no dns"

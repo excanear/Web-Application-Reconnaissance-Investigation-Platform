@@ -28,6 +28,7 @@ class CloudRangeModule(ReconModule):
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = sorted(context.get("subdomains", set()) | {target})
         scope = context.get("scope")
+        audit = context.get("audit")
         limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))
         breaker = CircuitBreaker(
             context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
@@ -38,7 +39,9 @@ class CloudRangeModule(ReconModule):
             limiter.wait()
             try:
                 ip = socket.gethostbyname(host)
-            except OSError:
+            except OSError as exc:
+                if audit is not None:
+                    audit.record(module=self.name, target=host, outcome=f"error: {exc}")
                 if breaker.record_failure():
                     findings.append(
                         Finding(
@@ -50,6 +53,8 @@ class CloudRangeModule(ReconModule):
                     break
                 continue
 
+            if audit is not None:
+                audit.record(module=self.name, target=host, outcome=f"resolved: {ip}")
             breaker.record_success()
 
             if scope is not None and not is_in_scope(host, ip, scope):
