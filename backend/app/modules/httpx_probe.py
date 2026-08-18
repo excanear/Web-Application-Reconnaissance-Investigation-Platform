@@ -15,6 +15,7 @@ class HttpxProbeModule(ReconModule):
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = context.get("subdomains", set()) | {target}
         scope = context.get("scope")
+        audit = context.get("audit")
         findings: list[Finding] = []
 
         if scope is not None:
@@ -40,20 +41,40 @@ class HttpxProbeModule(ReconModule):
             "-rate-limit",
             str(max(1, round(rate_limit))),
         ]
-        result = subprocess.run(
-            command,
-            input="\n".join(sorted(hosts)),
-            capture_output=True,
-            text=True,
-            timeout=300,
-            check=True,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                input="\n".join(sorted(hosts)),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            if audit is not None:
+                for host in hosts:
+                    audit.record(module=self.name, target=host, outcome=f"error: {exc}")
+            raise
 
+        # httpx makes its own requests internally -- we can't see the
+        # individual ones it made, only correlate its output back to the
+        # hosts we sent it. A host missing from the output gets no_response.
+        seen_hosts = set()
         for line in result.stdout.splitlines():
             line = line.strip()
             if not line:
                 continue
             record = json.loads(line)
+            host_target = record.get("input") or record.get("url", "")
+            seen_hosts.add(host_target)
+            if audit is not None:
+                status = record.get("status_code")
+                audit.record(
+                    module=self.name,
+                    target=host_target,
+                    outcome=str(status) if status is not None else "no_response",
+                    url=record.get("url"),
+                )
             findings.append(
                 Finding(
                     type="live_host",
@@ -65,4 +86,9 @@ class HttpxProbeModule(ReconModule):
                     },
                 )
             )
+
+        if audit is not None:
+            for host in hosts - seen_hosts:
+                audit.record(module=self.name, target=host, outcome="no_response")
+
         return findings
