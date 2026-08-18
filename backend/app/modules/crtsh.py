@@ -14,12 +14,22 @@ class CrtShModule(ReconModule):
         if scope is not None and not is_in_scope(target, None, scope):
             return [Finding(type="out_of_scope", value=target, data={"module": self.name})]
 
-        response = requests.get(
-            "https://crt.sh/",
-            params={"q": f"%.{target}", "output": "json"},
-            timeout=30,
-        )
-        response.raise_for_status()
+        audit = context.get("audit")
+        url = "https://crt.sh/"
+        try:
+            response = requests.get(
+                url,
+                params={"q": f"%.{target}", "output": "json"},
+                timeout=30,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            if audit is not None:
+                audit.record(module=self.name, target=target, outcome=f"error: {exc}", url=url)
+            raise
+
+        if audit is not None:
+            audit.record(module=self.name, target=target, outcome=str(response.status_code), url=url)
 
         subdomains = set()
         for entry in response.json():
