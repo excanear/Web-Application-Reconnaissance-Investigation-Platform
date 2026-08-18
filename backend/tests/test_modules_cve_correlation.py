@@ -213,3 +213,48 @@ def test_sleeps_between_requests_to_respect_nvd_rate_limit(monkeypatch):
 
     assert len(sleep_calls) == 2
     assert all(s > 0 for s in sleep_calls)
+
+
+def test_records_a_successful_nvd_query_to_the_audit_log(monkeypatch):
+    from app.audit import AuditLog
+
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
+    audit = AuditLog()
+    context["audit"] = audit
+
+    with patch(
+        "app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)
+    ):
+        CveCorrelationModule().run("example.com", context)
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["module"] == "cve_correlation"
+    assert audit.entries[0]["target"] == "nginx"
+    assert audit.entries[0]["outcome"] == "200"
+    assert audit.entries[0]["url"] == cve_correlation.NVD_API_URL
+
+
+def test_records_a_failed_nvd_query_to_the_audit_log(monkeypatch):
+    from app.audit import AuditLog
+
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
+    audit = AuditLog()
+    context["audit"] = audit
+
+    import requests as requests_lib
+
+    with patch(
+        "app.modules.cve_correlation.requests.get",
+        side_effect=requests_lib.RequestException("nvd is down"),
+    ):
+        CveCorrelationModule().run("example.com", context)
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["outcome"] == "error: nvd is down"

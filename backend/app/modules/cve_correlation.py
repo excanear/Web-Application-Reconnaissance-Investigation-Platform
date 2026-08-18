@@ -83,6 +83,7 @@ class CveCorrelationModule(ReconModule):
         breaker = CircuitBreaker(
             context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
         )
+        audit = context.get("audit")
         findings: list[Finding] = []
 
         for index, tech in enumerate(technologies):
@@ -91,7 +92,7 @@ class CveCorrelationModule(ReconModule):
             if not name or not version:
                 continue
 
-            tech_findings, succeeded = self._query_cves(name, version)
+            tech_findings, succeeded = self._query_cves(name, version, audit)
             findings.extend(tech_findings)
             # The NVD-specific delay protects the shared NVD API; the
             # general rate limit also applies on top of it, so we sleep
@@ -115,7 +116,7 @@ class CveCorrelationModule(ReconModule):
 
         return findings
 
-    def _query_cves(self, name: str, version: str) -> tuple[list[Finding], bool]:
+    def _query_cves(self, name: str, version: str, audit) -> tuple[list[Finding], bool]:
         # keywordSearch does a literal free-text match: searching "{name}
         # {version}" together returns almost nothing, since most CVE
         # descriptions don't quote the exact version. Search by name only,
@@ -131,8 +132,13 @@ class CveCorrelationModule(ReconModule):
             )
             response.raise_for_status()
             payload = response.json()
-        except requests.RequestException:
+        except requests.RequestException as exc:
+            if audit is not None:
+                audit.record(module=self.name, target=name, outcome=f"error: {exc}", url=NVD_API_URL)
             return [], False
+
+        if audit is not None:
+            audit.record(module=self.name, target=name, outcome=str(response.status_code), url=NVD_API_URL)
 
         findings = []
         for vulnerability in payload.get("vulnerabilities", []):
