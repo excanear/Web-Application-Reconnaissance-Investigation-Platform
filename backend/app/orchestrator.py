@@ -1,5 +1,6 @@
 from typing import Callable
 
+from app.audit import AuditLog
 from app.db import SessionLocal
 from app import models
 from app.modules.base import Finding, MODULE_REGISTRY
@@ -37,6 +38,7 @@ def run_scan(
             "rate_limit": rate_limit,
             "circuit_breaker_threshold": circuit_breaker_threshold,
             "scope": scan.project.scope or {},
+            "audit": AuditLog(),
         }
 
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
@@ -57,10 +59,23 @@ def run_scan(
                 continue
 
             module = module_cls()
-            for finding in _run_module(db, scan_id, module, target, context):
+            module_findings = _run_module(db, scan_id, module, target, context)
+            _persist_audit_entries(db, scan_id, context["audit"])
+            for finding in module_findings:
                 if finding.type == "subdomain":
                     if is_in_scope(finding.value, None, context["scope"]):
                         context["subdomains"].add(finding.value)
+                    else:
+                        _persist(
+                            db,
+                            scan_id,
+                            "orchestrator",
+                            Finding(
+                                type="out_of_scope",
+                                value=finding.value,
+                                data={"module": "orchestrator"},
+                            ),
+                        )
                 elif finding.type == "technology":
                     context["technologies"].append(dict(finding.data))
 
@@ -107,3 +122,19 @@ def _persist(db, scan_id: int, module_name: str, finding) -> None:
         )
     )
     db.commit()
+
+
+def _persist_audit_entries(db, scan_id: int, audit_log: AuditLog) -> None:
+    for entry in audit_log.entries:
+        db.add(
+            models.AuditEntry(
+                scan_id=scan_id,
+                module=entry["module"],
+                target=entry["target"],
+                url=entry.get("url"),
+                outcome=entry["outcome"],
+                requested_at=entry["requested_at"],
+            )
+        )
+    db.commit()
+    audit_log.entries.clear()

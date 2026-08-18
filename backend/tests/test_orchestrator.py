@@ -64,7 +64,10 @@ def test_run_scan_persists_findings_and_marks_scan_complete():
 
     assert scan.status == "complete"
     assert scan.finished_at is not None
-    assert {f.type for f in findings} == {"subdomain", "whois", "live_host"}
+    # The test project has no explicit scope (defaults to {}), so the
+    # discovered subdomain is out of scope and the orchestrator now
+    # records that as an out_of_scope finding instead of dropping it silently.
+    assert {f.type for f in findings} == {"subdomain", "whois", "live_host", "out_of_scope"}
 
 
 def _create_unauthorized_project_and_scan():
@@ -377,3 +380,150 @@ def test_run_scan_works_without_a_progress_callback():
     finally:
         db.close()
     assert scan.status == "complete"
+
+
+def test_run_scan_persists_audit_entries_recorded_by_a_module():
+    class _AuditingModule(ReconModule):
+        name = "_test_auditing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            context["audit"].record(module=self.name, target=target, outcome="200", url="https://example.com/")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_AuditingModule)
+        with _mock_all_modules(exclude={_AuditingModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_AuditingModule.name]
+
+    db = SessionLocal()
+    try:
+        entries = db.query(models.AuditEntry).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    assert len(entries) == 1
+    assert entries[0].module == "_test_auditing_module"
+    assert entries[0].target == "example.com"
+    assert entries[0].outcome == "200"
+    assert entries[0].url == "https://example.com/"
+
+
+def test_run_scan_persists_audit_entries_from_each_module_separately_without_duplication():
+    class _FirstAuditingModule(ReconModule):
+        name = "_test_first_auditing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            context["audit"].record(module=self.name, target=target, outcome="200")
+            return []
+
+    class _SecondAuditingModule(ReconModule):
+        name = "_test_second_auditing_module"
+        run_order = 30
+
+        def run(self, target, context):
+            context["audit"].record(module=self.name, target=target, outcome="404")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_FirstAuditingModule)
+        register_module(_SecondAuditingModule)
+        with _mock_all_modules(
+            exclude={_FirstAuditingModule.name, _SecondAuditingModule.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_FirstAuditingModule.name]
+        del MODULE_REGISTRY[_SecondAuditingModule.name]
+
+    db = SessionLocal()
+    try:
+        entries = db.query(models.AuditEntry).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    assert len(entries) == 2
+    by_module = {e.module: e.outcome for e in entries}
+    assert by_module == {
+        "_test_first_auditing_module": "200",
+        "_test_second_auditing_module": "404",
+    }
+
+
+def test_run_scan_keeps_audit_entries_recorded_before_a_module_crashes():
+    class _CrashingAuditingModule(ReconModule):
+        name = "_test_crashing_auditing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            context["audit"].record(module=self.name, target=target, outcome="error: connection reset")
+            raise RuntimeError("boom")
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_CrashingAuditingModule)
+        with _mock_all_modules(exclude={_CrashingAuditingModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_CrashingAuditingModule.name]
+
+    db = SessionLocal()
+    try:
+        entries = db.query(models.AuditEntry).filter_by(scan_id=scan_id).all()
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    assert len(entries) == 1
+    assert entries[0].outcome == "error: connection reset"
+    assert any(f.type == "module_error" and f.module == "_test_crashing_auditing_module" for f in findings)
+
+
+def test_run_scan_records_out_of_scope_finding_for_discovery_filtered_subdomain():
+    class _DiscoveryModule(ReconModule):
+        name = "_test_discovery_module_for_audit"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="blocked.example.com")]
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Discovery Scope Co",
+            target="example.com",
+            scope_notes="only example.com",
+            authorized=True,
+            scope={"include": ["example.com"], "exclude": ["blocked.example.com"]},
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_DiscoveryModule)
+        with _mock_all_modules(exclude={_DiscoveryModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_DiscoveryModule.name]
+
+    db = SessionLocal()
+    try:
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    out_of_scope = [f for f in findings if f.type == "out_of_scope" and f.value == "blocked.example.com"]
+    assert len(out_of_scope) == 1
+    assert out_of_scope[0].module == "orchestrator"
+    assert out_of_scope[0].data == {"module": "orchestrator"}
