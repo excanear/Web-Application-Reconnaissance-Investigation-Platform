@@ -78,3 +78,63 @@ def test_project_scope_stores_structured_include_exclude_window():
         assert reloaded.scope == scope
     finally:
         db.close()
+
+
+def test_audit_entry_persists_and_is_reachable_from_scan():
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Audit Co", target="audit.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+
+        entry = models.AuditEntry(
+            scan_id=scan.id,
+            module="crtsh",
+            target="audit.example.com",
+            url="https://crt.sh/",
+            outcome="200",
+        )
+        db.add(entry)
+        db.commit()
+
+        reloaded_scan = db.get(models.Scan, scan.id)
+        assert reloaded_scan.audit_entries[0].module == "crtsh"
+        assert reloaded_scan.audit_entries[0].target == "audit.example.com"
+        assert reloaded_scan.audit_entries[0].url == "https://crt.sh/"
+        assert reloaded_scan.audit_entries[0].outcome == "200"
+        assert reloaded_scan.audit_entries[0].requested_at is not None
+    finally:
+        db.close()
+
+
+def test_audit_entry_url_is_optional():
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Audit No URL Co", target="nourl.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+
+        entry = models.AuditEntry(
+            scan_id=scan.id, module="whois", target="nourl.example.com", outcome="success"
+        )
+        db.add(entry)
+        db.commit()
+
+        reloaded_scan = db.get(models.Scan, scan.id)
+        assert reloaded_scan.audit_entries[0].url is None
+    finally:
+        db.close()

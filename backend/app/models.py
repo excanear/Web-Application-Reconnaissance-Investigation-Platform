@@ -31,6 +31,7 @@ class Scan(Base):
 
     project = relationship("Project", back_populates="scans")
     findings = relationship("Finding", back_populates="scan")
+    audit_entries = relationship("AuditEntry", back_populates="scan")
 
 
 class Finding(Base):
@@ -45,3 +46,17 @@ class Finding(Base):
     created_at = Column(DateTime, default=utc_now)
 
     scan = relationship("Scan", back_populates="findings")
+
+
+class AuditEntry(Base):
+    __tablename__ = "audit_entries"
+
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False)
+    module = Column(String, nullable=False)
+    target = Column(String, nullable=False)
+    url = Column(String, nullable=True)
+    outcome = Column(String, nullable=False)
+    requested_at = Column(DateTime, default=utc_now)
+
+    scan = relationship("Scan", back_populates="audit_entries")
