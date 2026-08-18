@@ -2,6 +2,7 @@ import re
 
 import requests
 
+from app.audit import AuditLog
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
 from app.scope import is_in_scope
@@ -235,7 +236,7 @@ class TechFingerprintModule(ReconModule):
                 break
         return findings
 
-    def _fingerprint_host(self, host: str, limiter: RateLimiter, audit) -> tuple[list[Finding], bool]:
+    def _fingerprint_host(self, host: str, limiter: RateLimiter, audit: AuditLog | None) -> tuple[list[Finding], bool]:
         url = f"https://{host}/"
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -254,7 +255,7 @@ class TechFingerprintModule(ReconModule):
                 findings.append(finding)
         return findings, True
 
-    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter, audit) -> Finding | None:
+    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter, audit: AuditLog | None) -> Finding | None:
         if rule["match_type"] == "header":
             value = response.headers.get(rule["header"], "")
             match = re.search(rule["pattern"], value, re.IGNORECASE)

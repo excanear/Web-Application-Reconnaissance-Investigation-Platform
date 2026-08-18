@@ -85,6 +85,38 @@ def test_records_one_entry_per_host_from_parsed_output():
     assert entries["example.com"] == "no_response"
 
 
+def test_url_only_record_does_not_produce_a_contradictory_no_response_entry():
+    # Regression test: some httpx versions/flag combinations omit "input"
+    # on a line but still include "url". The host must still correlate to
+    # its real response, not get a second, contradictory "no_response"
+    # audit entry alongside the real one.
+    fake_output = '{"url": "https://a.example.com", "status_code": 200}\n'
+    fake_result = MagicMock(stdout=fake_output)
+    audit = AuditLog()
+    with patch("app.modules.httpx_probe.subprocess.run", return_value=fake_result):
+        HttpxProbeModule().run("example.com", {"subdomains": {"a.example.com"}, "audit": audit})
+
+    host_entries = [e for e in audit.entries if e["target"] == "a.example.com"]
+    assert len(host_entries) == 1
+    assert host_entries[0]["outcome"] == "200"
+
+
+def test_records_not_attempted_when_httpx_binary_is_missing():
+    audit = AuditLog()
+    with patch(
+        "app.modules.httpx_probe.subprocess.run",
+        side_effect=OSError("httpx not found"),
+    ):
+        with pytest.raises(OSError):
+            HttpxProbeModule().run(
+                "example.com", {"subdomains": {"a.example.com"}, "audit": audit}
+            )
+
+    targets = {e["target"] for e in audit.entries}
+    assert targets == {"example.com", "a.example.com"}
+    assert all(e["outcome"].startswith("not_attempted:") for e in audit.entries)
+
+
 def test_records_error_for_every_host_when_subprocess_fails():
     audit = AuditLog()
     with patch(

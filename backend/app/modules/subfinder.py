@@ -18,7 +18,15 @@ class SubfinderModule(ReconModule):
                 timeout=300,
                 check=True,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        except OSError as exc:
+            # subfinder never even launched (e.g. the binary isn't
+            # installed) -- distinguish "never attempted" from "attempted
+            # and failed" so the audit trail doesn't imply a request was
+            # made when none was.
+            if audit is not None:
+                audit.record(module=self.name, target=target, outcome=f"not_attempted: {exc}")
+            raise
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
             if audit is not None:
                 audit.record(module=self.name, target=target, outcome=f"error: {exc}")
             raise

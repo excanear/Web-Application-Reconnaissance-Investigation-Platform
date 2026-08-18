@@ -41,6 +41,8 @@ def run_scan(
             "audit": AuditLog(),
         }
 
+        recorded_out_of_scope_subdomains: set = set()
+
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
         for module_cls in ordered_modules:
             progress_callback(module_cls.name)
@@ -66,16 +68,18 @@ def run_scan(
                     if is_in_scope(finding.value, None, context["scope"]):
                         context["subdomains"].add(finding.value)
                     else:
-                        _persist(
-                            db,
-                            scan_id,
-                            "orchestrator",
-                            Finding(
-                                type="out_of_scope",
-                                value=finding.value,
-                                data={"module": "orchestrator"},
-                            ),
-                        )
+                        if finding.value not in recorded_out_of_scope_subdomains:
+                            _persist(
+                                db,
+                                scan_id,
+                                "orchestrator",
+                                Finding(
+                                    type="out_of_scope",
+                                    value=finding.value,
+                                    data={"module": "orchestrator"},
+                                ),
+                            )
+                        recorded_out_of_scope_subdomains.add(finding.value)
                 elif finding.type == "technology":
                     context["technologies"].append(dict(finding.data))
 

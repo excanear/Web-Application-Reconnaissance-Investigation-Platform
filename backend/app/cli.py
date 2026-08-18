@@ -181,6 +181,10 @@ def audit(
     scan_id: int = typer.Argument(..., help="ID of a previously run scan"),
     format: str = typer.Option("table", "--format", help="Output format: table (default) or csv"),
 ) -> None:
+    if format not in ("table", "csv"):
+        console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('invalid_audit_format')}")
+        raise typer.Exit(code=1)
+
     db = SessionLocal()
     try:
         scan_row = db.get(models.Scan, scan_id)
@@ -192,7 +196,7 @@ def audit(
         db.close()
 
     if format == "csv":
-        writer = csv.writer(sys.stdout)
+        writer = csv.writer(sys.stdout, lineterminator="\n")
         writer.writerow(["module", "target", "url", "outcome", "requested_at"])
         for entry in entries:
             writer.writerow(

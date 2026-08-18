@@ -27,6 +27,13 @@ class ReconModule(ABC):
     # backward-compatibility case -- it is NOT a safe default to rely on, and a
     # real dict scope (even {}) fails closed. Do not assume a missing "scope"
     # key means anything other than "not running under the orchestrator".
+
+    # Audit contract: context.get("audit") returns None only when a module is
+    # invoked directly outside the orchestrator (e.g. a unit test calling
+    # .run(target, {})). The real orchestrator always populates context["audit"]
+    # with a real AuditLog instance for every scan. Modules that make a real
+    # network call guard with `if audit is not None:` before calling
+    # `.record(...)` -- same pattern as the scope contract above.
     @abstractmethod
     def run(self, target: str, context: dict) -> list[Finding]:
         ...

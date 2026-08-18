@@ -1,3 +1,4 @@
+import csv
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -477,8 +478,17 @@ def test_audit_command_csv_format_outputs_csv_rows():
     result = runner.invoke(app, ["audit", str(scan_id), "--format", "csv"])
 
     assert result.exit_code == 0
-    assert "module,target,url,outcome,requested_at" in result.output
-    assert "whois,csv.example.com" in result.output
+    assert "\r\r\n" not in result.output
+
+    rows = list(csv.reader(result.output.splitlines()))
+    assert rows[0] == ["module", "target", "url", "outcome", "requested_at"]
+    assert len(rows) == 2
+    module, target, url, outcome, requested_at = rows[1]
+    assert module == "whois"
+    assert target == "csv.example.com"
+    assert url == ""
+    assert outcome == "success"
+    assert requested_at != ""
 
 
 def test_audit_command_exits_with_error_for_unknown_scan_id():
@@ -486,3 +496,24 @@ def test_audit_command_exits_with_error_for_unknown_scan_id():
 
     assert result.exit_code == 1
     assert "999999" in result.output
+
+
+def test_audit_command_rejects_invalid_format():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Audit Format Co", target="format.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["audit", str(scan_id), "--format", "xml"])
+
+    assert result.exit_code == 1
+    assert "--format" in result.output

@@ -527,3 +527,58 @@ def test_run_scan_records_out_of_scope_finding_for_discovery_filtered_subdomain(
     assert len(out_of_scope) == 1
     assert out_of_scope[0].module == "orchestrator"
     assert out_of_scope[0].data == {"module": "orchestrator"}
+
+
+def test_run_scan_dedupes_out_of_scope_finding_when_two_modules_report_the_same_subdomain():
+    class _FirstDiscoveryModule(ReconModule):
+        name = "_test_first_discovery_module_for_dedup"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="blocked.example.com")]
+
+    class _SecondDiscoveryModule(ReconModule):
+        name = "_test_second_discovery_module_for_dedup"
+        run_order = 11
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="blocked.example.com")]
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Discovery Scope Dedup Co",
+            target="example.com",
+            scope_notes="only example.com",
+            authorized=True,
+            scope={"include": ["example.com"], "exclude": ["blocked.example.com"]},
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_FirstDiscoveryModule)
+        register_module(_SecondDiscoveryModule)
+        with _mock_all_modules(
+            exclude={_FirstDiscoveryModule.name, _SecondDiscoveryModule.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_FirstDiscoveryModule.name]
+        del MODULE_REGISTRY[_SecondDiscoveryModule.name]
+
+    db = SessionLocal()
+    try:
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    out_of_scope = [f for f in findings if f.type == "out_of_scope" and f.value == "blocked.example.com"]
+    assert len(out_of_scope) == 1
+    assert out_of_scope[0].module == "orchestrator"

@@ -2,6 +2,7 @@ import time
 
 import requests
 
+from app.audit import AuditLog
 from app.config import settings
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker
@@ -116,7 +117,7 @@ class CveCorrelationModule(ReconModule):
 
         return findings
 
-    def _query_cves(self, name: str, version: str, audit) -> tuple[list[Finding], bool]:
+    def _query_cves(self, name: str, version: str, audit: AuditLog | None) -> tuple[list[Finding], bool]:
         # keywordSearch does a literal free-text match: searching "{name}
         # {version}" together returns almost nothing, since most CVE
         # descriptions don't quote the exact version. Search by name only,

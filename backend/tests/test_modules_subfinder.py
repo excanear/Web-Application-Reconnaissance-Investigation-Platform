@@ -45,3 +45,16 @@ def test_records_a_failed_invocation_to_the_audit_log_before_reraising():
 
     assert len(audit.entries) == 1
     assert audit.entries[0]["outcome"].startswith("error:")
+
+
+def test_records_not_attempted_when_the_binary_is_missing():
+    audit = AuditLog()
+    with patch(
+        "app.modules.subfinder.subprocess.run",
+        side_effect=OSError("subfinder not found"),
+    ):
+        with pytest.raises(OSError):
+            SubfinderModule().run("example.com", {"audit": audit})
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["outcome"].startswith("not_attempted:")

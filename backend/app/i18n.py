@@ -54,6 +54,7 @@ STRINGS = {
         "audit_col_url": "URL",
         "audit_col_outcome": "Outcome",
         "audit_col_requested_at": "Requested at",
+        "invalid_audit_format": "--format must be 'table' or 'csv'.",
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -102,6 +103,7 @@ STRINGS = {
         "audit_col_url": "URL",
         "audit_col_outcome": "Resultado",
         "audit_col_requested_at": "Requisitado em",
+        "invalid_audit_format": "--format deve ser 'table' ou 'csv'.",
     },
 }
 
