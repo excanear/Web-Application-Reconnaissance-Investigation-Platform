@@ -223,3 +223,60 @@ def test_out_of_scope_hosts_are_skipped_and_recorded_without_requests():
     assert [f.value for f in out_of_scope] == ["blocked.example.com"]
     assert out_of_scope[0].data == {"module": "tech_fingerprint"}
     assert any(f.data.get("name") == "nginx" for f in findings if f.type == "technology")
+
+
+def test_records_the_main_request_to_the_audit_log():
+    from app.audit import AuditLog
+
+    base = _response(headers={"Server": "nginx/1.18.0"})
+    probe_404 = _response(status_code=404)
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return probe_404
+        return base
+
+    audit = AuditLog()
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        TechFingerprintModule().run("example.com", {"audit": audit})
+
+    main_entries = [e for e in audit.entries if e["url"] == "https://example.com/"]
+    assert len(main_entries) == 1
+    assert main_entries[0]["outcome"] == "200"
+    assert main_entries[0]["target"] == "example.com"
+
+
+def test_records_the_path_probe_request_to_the_audit_log_when_it_fires():
+    from app.audit import AuditLog
+
+    base = _response()
+    changelog = _response(status_code=200, text="== Changelog ==\n\nVersion 6.4.2\n* fixed things")
+
+    def fake_get(url, **kwargs):
+        if url.endswith("/CHANGELOG.txt"):
+            return changelog
+        return base
+
+    audit = AuditLog()
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        TechFingerprintModule().run("example.com", {"audit": audit})
+
+    probe_entries = [e for e in audit.entries if e["url"] == "https://example.com/CHANGELOG.txt"]
+    assert len(probe_entries) == 1
+    assert probe_entries[0]["outcome"] == "200"
+
+
+def test_records_a_failed_main_request_to_the_audit_log():
+    import requests as requests_lib
+
+    from app.audit import AuditLog
+
+    audit = AuditLog()
+    with patch(
+        "app.modules.tech_fingerprint.requests.get",
+        side_effect=requests_lib.RequestException("down"),
+    ):
+        TechFingerprintModule().run("example.com", {"audit": audit})
+
+    assert len(audit.entries) == 1
+    assert audit.entries[0]["outcome"] == "error: down"

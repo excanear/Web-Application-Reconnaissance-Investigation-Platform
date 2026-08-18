@@ -202,6 +202,7 @@ class TechFingerprintModule(ReconModule):
     def run(self, target: str, context: dict) -> list[Finding]:
         hosts = sorted(context.get("subdomains", set()) | {target})
         scope = context.get("scope")
+        audit = context.get("audit")
         limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))
         breaker = CircuitBreaker(
             context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
@@ -216,7 +217,7 @@ class TechFingerprintModule(ReconModule):
                 continue
 
             limiter.wait()
-            host_findings, reached_host = self._fingerprint_host(host, limiter)
+            host_findings, reached_host = self._fingerprint_host(host, limiter, audit)
             findings.extend(host_findings)
 
             if reached_host:
@@ -234,20 +235,26 @@ class TechFingerprintModule(ReconModule):
                 break
         return findings
 
-    def _fingerprint_host(self, host: str, limiter: RateLimiter) -> tuple[list[Finding], bool]:
+    def _fingerprint_host(self, host: str, limiter: RateLimiter, audit) -> tuple[list[Finding], bool]:
+        url = f"https://{host}/"
         try:
-            response = requests.get(f"https://{host}/", timeout=REQUEST_TIMEOUT)
-        except requests.RequestException:
+            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
+            if audit is not None:
+                audit.record(module=self.name, target=host, outcome=f"error: {exc}", url=url)
             return [], False
+
+        if audit is not None:
+            audit.record(module=self.name, target=host, outcome=str(response.status_code), url=url)
 
         findings = []
         for rule in FINGERPRINT_RULES:
-            finding = self._apply_rule(host, rule, response, limiter)
+            finding = self._apply_rule(host, rule, response, limiter, audit)
             if finding is not None:
                 findings.append(finding)
         return findings, True
 
-    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter) -> Finding | None:
+    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter, audit) -> Finding | None:
         if rule["match_type"] == "header":
             value = response.headers.get(rule["header"], "")
             match = re.search(rule["pattern"], value, re.IGNORECASE)
@@ -281,10 +288,15 @@ class TechFingerprintModule(ReconModule):
 
         if rule["match_type"] == "path_probe":
             limiter.wait()
+            probe_url = f"https://{host}{rule['path']}"
             try:
-                probe = requests.get(f"https://{host}{rule['path']}", timeout=REQUEST_TIMEOUT)
-            except requests.RequestException:
+                probe = requests.get(probe_url, timeout=REQUEST_TIMEOUT)
+            except requests.RequestException as exc:
+                if audit is not None:
+                    audit.record(module=self.name, target=host, outcome=f"error: {exc}", url=probe_url)
                 return None
+            if audit is not None:
+                audit.record(module=self.name, target=host, outcome=str(probe.status_code), url=probe_url)
             if probe.status_code != 200:
                 return None
             match = re.search(rule["pattern"], probe.text, re.IGNORECASE)
