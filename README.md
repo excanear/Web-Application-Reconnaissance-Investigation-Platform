@@ -15,7 +15,7 @@ running.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#command-reference)
 [![Authorization required](https://img.shields.io/badge/use-authorized%20only-red?style=flat-square)](#authorization-and-responsible-use)
-[![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-136%20passing-brightgreen?style=flat-square)](#tests)
 
 </div>
 
@@ -34,6 +34,7 @@ running.
 - [CVE correlation](#cve-correlation)
 - [Configuration](#configuration)
 - [Data and persistence](#data-and-persistence)
+- [Audit trail](#audit-trail)
 - [Tests](#tests)
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
@@ -451,6 +452,18 @@ Reprints the formatted report for a scan that already completed, without
 running anything again — useful for revisiting a result without spending
 new requests against the target or the NVD.
 
+### View the audit trail
+
+```bash
+python -m app.cli audit <scan_id> --format table
+python -m app.cli audit <scan_id> --format csv > audit.csv
+```
+
+Lists every recorded `AuditEntry` for a scan — module, target, URL,
+outcome, timestamp. `table` (default) matches `report`'s Rich styling;
+`csv` writes to stdout via the stdlib `csv` module (no `--output` flag).
+See [Audit trail](#audit-trail) for what gets recorded and why.
+
 <details>
 <summary><strong>See full <code>--help</code></strong></summary>
 
@@ -469,6 +482,7 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 | scan                                                                        |
 | history                                                                     |
 | report                                                                      |
+| audit                                                                       |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -594,12 +608,13 @@ already covered by `.gitignore`):
 
 ## Data and persistence
 
-Three SQLite tables (`app/models.py`):
+Four SQLite tables (`app/models.py`):
 
 ```
 Project(id, name, target, scope_notes, authorized, authorized_at, created_at)
 Scan(id, project_id, status, started_at, finished_at)
 Finding(id, scan_id, module, type, value, data:JSON, created_at)
+AuditEntry(id, scan_id, module, target, url, outcome, requested_at)
 ```
 
 `Finding.type` currently includes: `subdomain`, `whois`, `live_host`,
@@ -608,6 +623,23 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 `Finding.data` holds the type-specific payload (category/version/
 confidence for technology; CVSS/severity/description for CVE, etc).
 
+## Audit trail
+
+Every real network request the tool makes — against the target/
+subdomains and against third-party services like the NVD — is recorded
+as an `AuditEntry`: module, target, URL (when applicable), outcome, and
+timestamp. This is separate from the findings report; it exists to
+prove what the tool actually touched, independent of what turned into
+a finding. `subfinder` and `httpx_probe` shell out to external Go
+binaries and can't see the individual requests those binaries make
+internally, so they get one entry per invocation/per-host respectively
+— an accepted approximation, not literal per-socket-request fidelity.
+
+```bash
+python -m app.cli audit <scan_id> --format table
+python -m app.cli audit <scan_id> --format csv > audit.csv
+```
+
 ## Tests
 
 ```bash
@@ -615,7 +647,7 @@ cd backend
 pytest -v
 ```
 
-105 tests, covering each module in isolation (mocking external calls), the
+136 tests, covering each module in isolation (mocking external calls), the
 orchestrator (per-module failure isolation, `run_order` ordering, context
 propagation), rate limiting/circuit breaker behavior in isolation, and
 the CLI (`typer.testing.CliRunner`, mocking the orchestrator so it
@@ -623,8 +655,6 @@ doesn't depend on the network).
 
 ## Known limitations
 
-- **No audit trail** — requests made to the target aren't logged beyond
-  the `Finding`s themselves that get persisted.
 - **`subfinder`/`httpx` require manual installation** of external Go
   tools — without them, those two specific modules are limited (they
   become `module_error`, the rest of the scan continues normally).
@@ -641,7 +671,6 @@ doesn't depend on the network).
 
 ## Roadmap
 
-- Audit log of every request sent to the target
 - CVE result caching between scans
 - Favicon-hash fingerprinting
 - Coverage for more hosting/CDN platforms (Vercel, Netlify, Render) and

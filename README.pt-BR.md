@@ -15,7 +15,7 @@ manter no ar.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#como-usar)
 [![Autorização obrigatória](https://img.shields.io/badge/uso-somente%20autorizado-red?style=flat-square)](#autorização-e-uso-responsável)
-[![Testes](https://img.shields.io/badge/testes-105%20passing-brightgreen?style=flat-square)](#testes)
+[![Testes](https://img.shields.io/badge/testes-136%20passing-brightgreen?style=flat-square)](#testes)
 
 </div>
 
@@ -34,6 +34,7 @@ manter no ar.
 - [Correlação de CVE](#correlação-de-cve)
 - [Configuração](#configuração)
 - [Dados e persistência](#dados-e-persistência)
+- [Trilha de auditoria](#trilha-de-auditoria)
 - [Testes](#testes)
 - [Limitações conhecidas](#limitações-conhecidas)
 - [Roteiro](#roteiro)
@@ -450,6 +451,19 @@ Reimprime o relatório formatado de um scan já concluído, sem rodar nada
 de novo — útil pra revisitar um resultado sem gastar requisições novas
 contra o alvo ou o NVD.
 
+### Ver a trilha de auditoria
+
+```bash
+python -m app.cli audit <scan_id> --format table
+python -m app.cli audit <scan_id> --format csv > audit.csv
+```
+
+Lista cada `AuditEntry` registrada de um scan — módulo, alvo, URL,
+resultado, timestamp. `table` (padrão) segue o mesmo estilo Rich do
+`report`; `csv` escreve no stdout via o módulo `csv` da stdlib (sem flag
+`--output`). Veja [Trilha de auditoria](#trilha-de-auditoria) pra saber
+o que fica registrado e por quê.
+
 <details>
 <summary><strong>Ver <code>--help</code> completo</strong></summary>
 
@@ -464,6 +478,7 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 | scan       Cria um projeto e roda um scan completo                         |
 | history    Lista scans já executados                                       |
 | report     Reimprime o relatório de um scan existente                      |
+| audit      Lista a trilha de auditoria de um scan existente                |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -590,12 +605,13 @@ Variáveis de ambiente lidas de `backend/.env` (nunca commitado —
 
 ## Dados e persistência
 
-Três tabelas em SQLite (`app/models.py`):
+Quatro tabelas em SQLite (`app/models.py`):
 
 ```
 Project(id, name, target, scope_notes, authorized, authorized_at, created_at)
 Scan(id, project_id, status, started_at, finished_at)
 Finding(id, scan_id, module, type, value, data:JSON, created_at)
+AuditEntry(id, scan_id, module, target, url, outcome, requested_at)
 ```
 
 `Finding.type` hoje inclui: `subdomain`, `whois`, `live_host`,
@@ -605,6 +621,23 @@ Finding(id, scan_id, module, type, value, data:JSON, created_at)
 (categoria/versão/confiança pra tecnologia; CVSS/severidade/descrição
 pra CVE, etc).
 
+## Trilha de auditoria
+
+Toda requisição de rede real que a ferramenta faz — contra o alvo/
+subdomínios e contra serviços de terceiros como o NVD — fica registrada
+como um `AuditEntry`: módulo, alvo, URL (quando aplicável), resultado e
+timestamp. Isso é separado do relatório de achados; existe pra provar o
+que a ferramenta realmente tocou, independente do que virou achado.
+`subfinder` e `httpx_probe` chamam binários externos em Go e não
+conseguem ver as requisições individuais que esses binários fazem por
+dentro, então ganham uma entrada por invocação/por host respectivamente
+— uma aproximação aceita, não fidelidade literal por requisição.
+
+```bash
+python -m app.cli audit <scan_id> --format table
+python -m app.cli audit <scan_id> --format csv > audit.csv
+```
+
 ## Testes
 
 ```bash
@@ -612,7 +645,7 @@ cd backend
 pytest -v
 ```
 
-105 testes, cobrindo cada módulo isoladamente (mockando chamadas
+136 testes, cobrindo cada módulo isoladamente (mockando chamadas
 externas), o orquestrador (isolamento de falha por módulo, ordenação por
 `run_order`, propagação de contexto), o comportamento de rate
 limiting/circuit breaker isoladamente, e a CLI (`typer.testing.CliRunner`,
@@ -620,8 +653,6 @@ mockando o orquestrador pra não depender de rede).
 
 ## Limitações conhecidas
 
-- **Sem log de auditoria** — requisições feitas ao alvo não ficam
-  registradas além dos próprios `Finding`s persistidos.
 - **`subfinder`/`httpx` exigem instalação manual** de ferramentas Go
   externas — sem elas, esses dois módulos específicos ficam limitados
   (viram `module_error`, o resto do scan continua normal).
@@ -638,7 +669,6 @@ mockando o orquestrador pra não depender de rede).
 
 ## Roteiro
 
-- Log de auditoria de toda requisição enviada ao alvo
 - Cache de resultado de CVE entre scans
 - Fingerprint por hash de favicon
 - Cobertura de mais plataformas de hospedagem/CDN (Vercel, Netlify, Render)
