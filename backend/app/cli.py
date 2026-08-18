@@ -1,3 +1,4 @@
+import csv
 import ipaddress
 import re
 import sys
@@ -173,6 +174,46 @@ def history() -> None:
 @app.command()
 def report(scan_id: int = typer.Argument(..., help="ID of a previously run scan")) -> None:
     _print_report(scan_id)
+
+
+@app.command()
+def audit(
+    scan_id: int = typer.Argument(..., help="ID of a previously run scan"),
+    format: str = typer.Option("table", "--format", help="Output format: table (default) or csv"),
+) -> None:
+    db = SessionLocal()
+    try:
+        scan_row = db.get(models.Scan, scan_id)
+        if scan_row is None:
+            console.print(f"[red]{i18n.t('scan_not_found', scan_id=scan_id)}[/red]")
+            raise typer.Exit(code=1)
+        entries = list(scan_row.audit_entries)
+    finally:
+        db.close()
+
+    if format == "csv":
+        writer = csv.writer(sys.stdout)
+        writer.writerow(["module", "target", "url", "outcome", "requested_at"])
+        for entry in entries:
+            writer.writerow(
+                [entry.module, entry.target, entry.url or "", entry.outcome, entry.requested_at]
+            )
+        return
+
+    table = Table(title=i18n.t("audit_title"))
+    for key in (
+        "audit_col_module",
+        "audit_col_target",
+        "audit_col_url",
+        "audit_col_outcome",
+        "audit_col_requested_at",
+    ):
+        table.add_column(i18n.t(key))
+    for entry in entries:
+        table.add_row(
+            entry.module, entry.target, entry.url or "-", entry.outcome, str(entry.requested_at)
+        )
+    console.print(table)
 
 
 def _print_report(scan_id: int) -> None:

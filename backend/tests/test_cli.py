@@ -419,3 +419,70 @@ def test_report_never_crashes_on_a_description_with_unencodable_characters():
     result = runner.invoke(app, ["report", str(scan_id)])
 
     assert result.exit_code == 0
+
+
+def test_audit_command_prints_table_with_recorded_entries():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Audit Co", target="audit.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.AuditEntry(
+                scan_id=scan_row.id,
+                module="crtsh",
+                target="audit.example.com",
+                url="https://crt.sh/",
+                outcome="200",
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["audit", str(scan_id)])
+
+    assert result.exit_code == 0
+    assert "crtsh" in result.output
+    assert "audit.example.com" in result.output
+
+
+def test_audit_command_csv_format_outputs_csv_rows():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Audit CSV Co", target="csv.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.AuditEntry(
+                scan_id=scan_row.id, module="whois", target="csv.example.com", outcome="success"
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["audit", str(scan_id), "--format", "csv"])
+
+    assert result.exit_code == 0
+    assert "module,target,url,outcome,requested_at" in result.output
+    assert "whois,csv.example.com" in result.output
+
+
+def test_audit_command_exits_with_error_for_unknown_scan_id():
+    result = runner.invoke(app, ["audit", "999999"])
+
+    assert result.exit_code == 1
+    assert "999999" in result.output

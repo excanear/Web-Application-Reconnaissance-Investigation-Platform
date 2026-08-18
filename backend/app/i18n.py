@@ -48,6 +48,12 @@ STRINGS = {
         "other_col_type": "Type",
         "other_col_value": "Value",
         "other_col_module": "Module",
+        "audit_title": "Audit trail",
+        "audit_col_module": "Module",
+        "audit_col_target": "Target",
+        "audit_col_url": "URL",
+        "audit_col_outcome": "Outcome",
+        "audit_col_requested_at": "Requested at",
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -90,6 +96,12 @@ STRINGS = {
         "other_col_type": "Tipo",
         "other_col_value": "Valor",
         "other_col_module": "Modulo",
+        "audit_title": "Trilha de auditoria",
+        "audit_col_module": "Modulo",
+        "audit_col_target": "Alvo",
+        "audit_col_url": "URL",
+        "audit_col_outcome": "Resultado",
+        "audit_col_requested_at": "Requisitado em",
     },
 }
 
