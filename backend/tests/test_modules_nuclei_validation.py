@@ -149,3 +149,32 @@ def test_circuit_breaker_trips_after_threshold_consecutive_check_failures():
     assert len(tripped) == 1
     assert tripped[0].data["module"] == "nuclei_validation"
     assert tripped[0].data["skipped_checks"] == 3
+
+
+def test_confirmed_finding_includes_remediation_when_the_template_provides_it():
+    match_line = (
+        '{"template-id": "CVE-2021-23017", "matched-at": "https://tech.example.com/", '
+        '"info": {"remediation": "Upgrade to version 2.0 or later.\\n"}}\n'
+    )
+    context = {"cve_findings": [{"cve_id": "CVE-2021-23017", "host": "tech.example.com"}]}
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(stdout=match_line),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    assert findings[0].data["remediation_en"] == "Upgrade to version 2.0 or later."
+
+
+def test_confirmed_finding_omits_remediation_when_the_template_has_none():
+    match_line = '{"template-id": "CVE-2021-23017", "matched-at": "https://tech.example.com/"}\n'
+    context = {"cve_findings": [{"cve_id": "CVE-2021-23017", "host": "tech.example.com"}]}
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(stdout=match_line),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    assert "remediation_en" not in findings[0].data

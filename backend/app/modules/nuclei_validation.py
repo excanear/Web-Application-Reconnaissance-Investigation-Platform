@@ -132,22 +132,20 @@ class NucleiValidationModule(ReconModule):
         if audit is not None:
             audit.record(module=self.name, target=target_label, outcome="confirmed", url=url)
 
-        return (
-            Finding(
-                type="cve_validation",
-                value=cve_id,
-                data={
-                    "host": host,
-                    "status": "confirmed",
-                    "nuclei_template_id": template_id,
-                    "matched_at": matched_at,
-                    "confirmation_note_en": i18n.t(
-                        "cve_confirmed_note", lang="en", template_id=template_id, matched_at=matched_at
-                    ),
-                    "confirmation_note_pt": i18n.t(
-                        "cve_confirmed_note", lang="pt", template_id=template_id, matched_at=matched_at
-                    ),
-                },
+        data = {
+            "host": host,
+            "status": "confirmed",
+            "nuclei_template_id": template_id,
+            "matched_at": matched_at,
+            "confirmation_note_en": i18n.t(
+                "cve_confirmed_note", lang="en", template_id=template_id, matched_at=matched_at
             ),
-            True,
-        )
+            "confirmation_note_pt": i18n.t(
+                "cve_confirmed_note", lang="pt", template_id=template_id, matched_at=matched_at
+            ),
+        }
+        remediation = match.get("info", {}).get("remediation")
+        if remediation:
+            data["remediation_en"] = remediation.strip()
+
+        return Finding(type="cve_validation", value=cve_id, data=data), True
