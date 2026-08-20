@@ -20,13 +20,13 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
 app = typer.Typer(help="Recon & Investigation CLI")
-# Explicit width: when stdout isn't a real terminal (piped, redirected, or
-# captured by tests), Rich falls back to an 80-column default that's too
-# narrow for the CVE table's seven columns and ellipsis-truncates cell
-# content (including IDs and status text) instead of wrapping it. A wider
-# fixed width keeps report output legible and untruncated in those cases;
-# a real terminal narrower than this will still soft-wrap normally.
-console = Console(width=160)
+# When stdout isn't a real terminal (piped, redirected, or captured by
+# tests), Rich falls back to an 80-column default that's too narrow for
+# the CVE table's seven columns and ellipsis-truncates cell content
+# (including IDs and status text) instead of wrapping it. Pin a wider
+# width for that non-tty case only; a real terminal keeps Rich's normal
+# auto-detection and sizing/word-wrap to the user's actual width.
+console = Console(width=160) if not sys.stdout.isatty() else Console()
 
 ensure_schema()
 
