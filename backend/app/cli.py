@@ -285,11 +285,20 @@ def _print_report(scan_id: int) -> None:
             description_en = f.data.get("description_en", f.data.get("description", ""))
             description_pt = f.data.get("description_pt")
             if lang == "pt":
-                description = (
-                    description_pt
-                    if description_pt
-                    else f"{description_en} {i18n.t('translation_unavailable')}".strip()
-                )
+                if description_pt:
+                    description = description_pt
+                else:
+                    # Truncate the English text first so the marker always
+                    # survives -- appending it before truncation let a long
+                    # real-world NVD description (typically 200+ chars) push
+                    # the marker itself past DESCRIPTION_MAX_LENGTH, silently
+                    # dropping it and leaving the PT report indistinguishable
+                    # from a successful translation. _truncate() can itself
+                    # overshoot its own max_length by up to 3 chars (its
+                    # "..." suffix), so reserve for that too.
+                    suffix = f" {i18n.t('translation_unavailable')}"
+                    budget = max(0, DESCRIPTION_MAX_LENGTH - len(suffix) - 3)
+                    description = f"{_truncate(description_en, budget)}{suffix}"
             else:
                 description = description_en
 

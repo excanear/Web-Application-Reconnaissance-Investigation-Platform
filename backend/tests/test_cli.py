@@ -607,6 +607,55 @@ def test_report_marks_a_missing_portuguese_translation_instead_of_showing_nothin
     assert "traducao indisponivel" in result.output.lower()
 
 
+def test_report_shows_the_missing_translation_marker_even_for_a_long_description():
+    # Real NVD descriptions routinely run 200+ chars, longer than
+    # DESCRIPTION_MAX_LENGTH -- the marker must survive truncation instead
+    # of being silently cut off along with the tail of the English text.
+    long_description = (
+        "In Apache HTTP Server 2.4.0-2.4.39, a limited cross-site scripting issue was "
+        "reported affecting the mod_proxy error page. An attacker could cause the link "
+        "on the error page to be malformed and instead point to a page of their choice. "
+        "This would only be exploitable where a server was set up with proxying enabled "
+        "but was misconfigured in such a way that the Proxy Error page was displayed."
+    )
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Long Description Co", target="longdesc.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-2019-10092",
+                data={
+                    "cvss_score": 6.1,
+                    "severity": "MEDIUM",
+                    "description_en": long_description,
+                    "description_pt": None,
+                    "matched_technology": "Apache",
+                    "matched_technology_version": "2.4.7",
+                    "host": "longdesc.example.com",
+                    "status": "suspected",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["--lang", "pt", "report", str(scan_id)])
+    assert result.exit_code == 0
+    assert "traducao indisponivel" in result.output.lower()
+
+
 def test_report_falls_back_to_suspected_status_for_legacy_findings_without_a_status_field():
     db = SessionLocal()
     try:
