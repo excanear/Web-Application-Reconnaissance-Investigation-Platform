@@ -98,7 +98,17 @@ class NucleiValidationModule(ReconModule):
                 audit.record(module=self.name, target=target_label, outcome=f"error: {exc}", url=url)
             return None, False
 
-        matches = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        try:
+            matches = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        except json.JSONDecodeError as exc:
+            # nuclei ran but emitted something we can't parse as its JSONL
+            # output (e.g. a stray warning line slipping past -silent) --
+            # this is a check failure, not a "binary missing" case, so it's
+            # audited and counted against the circuit breaker rather than
+            # raised.
+            if audit is not None:
+                audit.record(module=self.name, target=target_label, outcome=f"error: {exc}", url=url)
+            return None, False
 
         if result.returncode != 0 and not matches:
             if audit is not None:

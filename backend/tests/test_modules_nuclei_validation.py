@@ -116,6 +116,21 @@ def test_skips_an_out_of_scope_host():
     assert findings[0].value == "blocked.example.com"
 
 
+def test_records_an_error_to_the_audit_log_and_does_not_crash_on_unparseable_stdout():
+    context = {"cve_findings": [{"cve_id": "CVE-2021-23017", "host": "tech.example.com"}]}
+    audit = AuditLog()
+    context["audit"] = audit
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(stdout="[WRN] some warning banner, not JSON\n"),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    assert findings == []
+    assert audit.entries[0]["outcome"].startswith("error:")
+
+
 def test_circuit_breaker_trips_after_threshold_consecutive_check_failures():
     context = {
         "cve_findings": [
