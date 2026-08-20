@@ -35,6 +35,7 @@ def run_scan(
         context: dict = {
             "subdomains": set(),
             "technologies": [],
+            "cve_findings": [],
             "rate_limit": rate_limit,
             "circuit_breaker_threshold": circuit_breaker_threshold,
             "scope": scan.project.scope or {},
@@ -81,7 +82,13 @@ def run_scan(
                             )
                         recorded_out_of_scope_subdomains.add(finding.value)
                 elif finding.type == "technology":
-                    context["technologies"].append(dict(finding.data))
+                    context["technologies"].append({**finding.data, "host": finding.value})
+                elif finding.type == "cve":
+                    context["cve_findings"].append(
+                        {"cve_id": finding.value, "host": finding.data.get("host")}
+                    )
+                elif finding.type == "cve_validation":
+                    _apply_cve_validation(db, scan_id, finding)
 
         scan.status = "complete"
         scan.finished_at = utc_now()
@@ -111,7 +118,8 @@ def _run_module(db, scan_id: int, module, target: str, context: dict) -> list:
         return []
 
     for finding in findings:
-        _persist(db, scan_id, module.name, finding)
+        if finding.type != "cve_validation":
+            _persist(db, scan_id, module.name, finding)
     return findings
 
 
@@ -142,3 +150,21 @@ def _persist_audit_entries(db, scan_id: int, audit_log: AuditLog) -> None:
         )
     db.commit()
     audit_log.entries.clear()
+
+
+def _apply_cve_validation(db, scan_id: int, finding) -> None:
+    """Merges a cve_validation finding's data into the already-persisted
+    cve Finding it confirms (matched by CVE ID + host), instead of
+    creating a second row -- one Finding per CVE stays the source of
+    truth for both correlation and validation state."""
+    host = finding.data.get("host")
+    matches = (
+        db.query(models.Finding)
+        .filter_by(scan_id=scan_id, type="cve", value=finding.value)
+        .all()
+    )
+    for row in matches:
+        if row.data.get("host") == host:
+            row.data = {**row.data, **finding.data}
+            db.commit()
+            return

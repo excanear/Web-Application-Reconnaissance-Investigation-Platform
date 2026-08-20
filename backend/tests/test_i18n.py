@@ -41,3 +41,26 @@ def test_set_lang_rejects_unknown_language_key_lookup_but_keeps_going():
     i18n.set_lang("klingon")
 
     assert i18n.t("error_prefix") == "Error:"
+
+
+def test_t_accepts_an_explicit_lang_override_regardless_of_global_state():
+    i18n.set_lang("en")
+
+    assert i18n.t("error_prefix", lang="pt") == "Erro:"
+
+
+def test_t_explicit_lang_override_formats_placeholders():
+    assert (
+        i18n.t("cve_confirmed_note", lang="en", template_id="CVE-2021-23017", matched_at="https://x/")
+        == "Confirmed via nuclei template CVE-2021-23017: matched at https://x/."
+    )
+    assert (
+        i18n.t("cve_confirmed_note", lang="pt", template_id="CVE-2021-23017", matched_at="https://x/")
+        == "Confirmado via template nuclei CVE-2021-23017: correspondencia em https://x/."
+    )
+
+
+def test_current_lang_reflects_set_lang():
+    i18n.set_lang("pt")
+
+    assert i18n.current_lang() == "pt"

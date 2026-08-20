@@ -177,7 +177,7 @@ def test_run_scan_threads_technologies_from_earlier_to_later_modules_by_run_orde
         del MODULE_REGISTRY[_EarlyTechModule.name]
         del MODULE_REGISTRY[_LateCorrelationModule.name]
 
-    assert seen_technologies == [[{"name": "nginx", "version": "1.18"}]]
+    assert seen_technologies == [[{"name": "nginx", "version": "1.18", "host": "example.com"}]]
 
 
 def test_run_scan_calls_progress_callback_with_each_module_name_in_run_order():
@@ -582,3 +582,137 @@ def test_run_scan_dedupes_out_of_scope_finding_when_two_modules_report_the_same_
     out_of_scope = [f for f in findings if f.type == "out_of_scope" and f.value == "blocked.example.com"]
     assert len(out_of_scope) == 1
     assert out_of_scope[0].module == "orchestrator"
+
+
+def test_run_scan_includes_host_in_technologies_context():
+    seen_technologies = []
+
+    class _EarlyTechModuleHost(ReconModule):
+        name = "_test_early_tech_module_host"
+        run_order = 20
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="technology",
+                    value="tech.example.com",
+                    data={"name": "nginx", "version": "1.18"},
+                )
+            ]
+
+    class _LateCapturingModuleHost(ReconModule):
+        name = "_test_late_capturing_module_host"
+        run_order = 90
+
+        def run(self, target, context):
+            seen_technologies.append(list(context.get("technologies", [])))
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_EarlyTechModuleHost)
+        register_module(_LateCapturingModuleHost)
+        with _mock_all_modules(exclude={_EarlyTechModuleHost.name, _LateCapturingModuleHost.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_EarlyTechModuleHost.name]
+        del MODULE_REGISTRY[_LateCapturingModuleHost.name]
+
+    assert seen_technologies == [
+        [{"name": "nginx", "version": "1.18", "host": "tech.example.com"}]
+    ]
+
+
+def test_run_scan_accumulates_cve_findings_for_later_modules():
+    seen_cve_findings = []
+
+    class _CveProducingModule(ReconModule):
+        name = "_test_cve_producing_module"
+        run_order = 90
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve",
+                    value="CVE-2021-23017",
+                    data={"host": "tech.example.com", "status": "suspected"},
+                )
+            ]
+
+    class _LateValidationCapturingModule(ReconModule):
+        name = "_test_late_validation_capturing_module"
+        run_order = 95
+
+        def run(self, target, context):
+            seen_cve_findings.append(list(context.get("cve_findings", [])))
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_CveProducingModule)
+        register_module(_LateValidationCapturingModule)
+        with _mock_all_modules(
+            exclude={_CveProducingModule.name, _LateValidationCapturingModule.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_CveProducingModule.name]
+        del MODULE_REGISTRY[_LateValidationCapturingModule.name]
+
+    assert seen_cve_findings == [[{"cve_id": "CVE-2021-23017", "host": "tech.example.com"}]]
+
+
+def test_run_scan_merges_cve_validation_finding_into_the_matching_cve_finding():
+    class _CveProducingModuleForMerge(ReconModule):
+        name = "_test_cve_producing_module_for_merge"
+        run_order = 90
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve",
+                    value="CVE-2021-23017",
+                    data={"host": "tech.example.com", "status": "suspected"},
+                )
+            ]
+
+    class _ValidationModuleForMerge(ReconModule):
+        name = "_test_validation_module_for_merge"
+        run_order = 95
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve_validation",
+                    value="CVE-2021-23017",
+                    data={
+                        "host": "tech.example.com",
+                        "status": "confirmed",
+                        "nuclei_template_id": "CVE-2021-23017",
+                    },
+                )
+            ]
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_CveProducingModuleForMerge)
+        register_module(_ValidationModuleForMerge)
+        with _mock_all_modules(
+            exclude={_CveProducingModuleForMerge.name, _ValidationModuleForMerge.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_CveProducingModuleForMerge.name]
+        del MODULE_REGISTRY[_ValidationModuleForMerge.name]
+
+    db = SessionLocal()
+    try:
+        cve_rows = db.query(models.Finding).filter_by(scan_id=scan_id, type="cve").all()
+        validation_rows = db.query(models.Finding).filter_by(scan_id=scan_id, type="cve_validation").all()
+    finally:
+        db.close()
+
+    assert len(cve_rows) == 1
+    assert cve_rows[0].data["status"] == "confirmed"
+    assert cve_rows[0].data["nuclei_template_id"] == "CVE-2021-23017"
+    assert validation_rows == []

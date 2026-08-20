@@ -6,6 +6,7 @@ from app.audit import AuditLog
 from app.config import settings
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker
+from app.translate import translate_en_to_pt
 
 NVD_API_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 REQUEST_TIMEOUT = 30
@@ -90,10 +91,11 @@ class CveCorrelationModule(ReconModule):
         for index, tech in enumerate(technologies):
             name = tech.get("name")
             version = tech.get("version")
+            host = tech.get("host", "")
             if not name or not version:
                 continue
 
-            tech_findings, succeeded = self._query_cves(name, version, audit)
+            tech_findings, succeeded = self._query_cves(name, version, host, audit)
             findings.extend(tech_findings)
             # The NVD-specific delay protects the shared NVD API; the
             # general rate limit also applies on top of it, so we sleep
@@ -117,7 +119,9 @@ class CveCorrelationModule(ReconModule):
 
         return findings
 
-    def _query_cves(self, name: str, version: str, audit: AuditLog | None) -> tuple[list[Finding], bool]:
+    def _query_cves(
+        self, name: str, version: str, host: str, audit: AuditLog | None
+    ) -> tuple[list[Finding], bool]:
         # keywordSearch does a literal free-text match: searching "{name}
         # {version}" together returns almost nothing, since most CVE
         # descriptions don't quote the exact version. Search by name only,
@@ -145,14 +149,25 @@ class CveCorrelationModule(ReconModule):
         for vulnerability in payload.get("vulnerabilities", []):
             cve = vulnerability.get("cve", {})
             if _cve_matches_version(cve, name, version):
-                findings.append(self._finding_from_cve(cve, name, version))
+                findings.append(self._finding_from_cve(cve, name, version, host, audit))
         return findings, True
 
-    @staticmethod
-    def _finding_from_cve(cve: dict, tech_name: str, tech_version: str) -> Finding:
-        description = next(
+    def _finding_from_cve(
+        self, cve: dict, tech_name: str, tech_version: str, host: str, audit: AuditLog | None
+    ) -> Finding:
+        description_en = next(
             (d["value"] for d in cve.get("descriptions", []) if d.get("lang") == "en"),
             "",
+        )
+        description_pt = (
+            translate_en_to_pt(
+                description_en,
+                audit=audit,
+                module=self.name,
+                audit_target=cve.get("id", ""),
+            )
+            if description_en
+            else None
         )
 
         cvss_score = None
@@ -172,8 +187,11 @@ class CveCorrelationModule(ReconModule):
             data={
                 "cvss_score": cvss_score,
                 "severity": severity,
-                "description": description,
+                "description_en": description_en,
+                "description_pt": description_pt,
                 "matched_technology": tech_name,
                 "matched_technology_version": tech_version,
+                "host": host,
+                "status": "suspected",
             },
         )

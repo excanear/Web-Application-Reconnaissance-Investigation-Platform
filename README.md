@@ -374,6 +374,24 @@ normally — installing them isn't required to use the tool.
 ./scripts/install.sh
 ```
 
+### Install `nuclei` (optional, needed for CVE validation)
+
+`nuclei_validation` actively confirms a subset of `suspected` CVE findings
+by running community-maintained `nuclei` templates matched by CVE ID
+against the target. Without `nuclei` installed, this module logs a single
+`module_error` finding and every CVE finding stays `suspected` — the rest
+of the scan is unaffected.
+
+1. Install `nuclei`: https://github.com/projectdiscovery/nuclei#install-nuclei
+2. Update its template library (required — the tool never vendors
+   templates itself): `nuclei -update-templates`
+3. Re-run `nuclei -update-templates` periodically to pick up templates for
+   newly disclosed CVEs.
+
+Every `nuclei` invocation excludes `dos`, `fuzz`, and `intrusive`-tagged
+templates unconditionally — this is a hard-coded safety boundary, not a
+setting.
+
 ### Set up an NVD API key (optional, recommended)
 
 Without a key, the NVD query limit is 5 requests every 30 seconds. With a
@@ -548,6 +566,7 @@ create the file and import it in `app/modules/__init__.py`.
 | `tech_fingerprint` | 50 | **yes** | 29-rule active fingerprinting engine — see the dedicated section below |
 | `whois` | 50 | no | Queries the domain's real registration data |
 | `cve_correlation` | 90 | no | Correlates each technology with a known version against the real NVD API |
+| `nuclei_validation` | 95 | **yes** | Runs `nuclei` templates matched by CVE ID against `suspected` CVE findings to confirm exploitability, excluding `dos`/`fuzz`/`intrusive`-tagged templates |
 
 "Active" = sends requests directly against the target/subdomains, beyond
 just querying third-party services. Active modules require
@@ -596,6 +615,15 @@ literal text). The real approach:
 Validated live: `nginx 1.18.0` correctly returns **46 real CVEs** against
 the NVD's production API.
 
+The report's **Status** column for each CVE shows either `suspected` or
+`confirmed`. `suspected` means the version falls inside the CVE's CPE range
+according to the NVD — that's the result of structural correlation alone.
+`confirmed` means `nuclei_validation` ran a community-maintained template
+for that CVE against the target and the template reported a positive result,
+confirming the vulnerability can be actually reproduced via a safe check
+(no exploitation, just detection). The **Evidence** column for confirmed
+CVEs shows which `nuclei` template ID matched and at which timestamp.
+
 ## Configuration
 
 Environment variables read from `backend/.env` (never committed —
@@ -605,6 +633,7 @@ already covered by `.gitignore`):
 |---|---|---|---|
 | `DATABASE_URL` | no | `sqlite:///./dev.db` | SQLAlchemy connection string. Local SQLite by default — works without any external database |
 | `NVD_API_KEY` | no | (none) | Raises the NVD request limit from 5/30s to 50/30s. Free at nvd.nist.gov |
+| `DEEPL_API_KEY` | no | (none) | Enables Portuguese translation of NVD's CVE descriptions. Free tier at deepl.com. Without it, CVE descriptions stay English-only and the report marks the Portuguese cell as unavailable when `--lang pt` is used. |
 
 ## Data and persistence
 

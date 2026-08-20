@@ -55,6 +55,12 @@ STRINGS = {
         "audit_col_outcome": "Outcome",
         "audit_col_requested_at": "Requested at",
         "invalid_audit_format": "--format must be 'table' or 'csv'.",
+        "cve_col_status": "Status",
+        "cve_col_evidence": "Evidence",
+        "status_suspected": "Suspected",
+        "status_confirmed": "Confirmed",
+        "translation_unavailable": "(translation unavailable)",
+        "cve_confirmed_note": "Confirmed via nuclei template {template_id}: matched at {matched_at}.",
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -104,6 +110,12 @@ STRINGS = {
         "audit_col_outcome": "Resultado",
         "audit_col_requested_at": "Requisitado em",
         "invalid_audit_format": "--format deve ser 'table' ou 'csv'.",
+        "cve_col_status": "Status",
+        "cve_col_evidence": "Evidencia",
+        "status_suspected": "Suspeita",
+        "status_confirmed": "Confirmada",
+        "translation_unavailable": "(traducao indisponivel)",
+        "cve_confirmed_note": "Confirmado via template nuclei {template_id}: correspondencia em {matched_at}.",
     },
 }
 
@@ -120,9 +132,13 @@ def set_lang(lang: str) -> None:
     _current_lang = lang
 
 
-def t(key: str, **kwargs) -> str:
-    """Look up `key` in the active language, falling back to English if
-    the active language or the key isn't translated."""
-    strings = STRINGS.get(_current_lang, STRINGS[DEFAULT_LANG])
+def current_lang() -> str:
+    return _current_lang
+
+
+def t(key: str, lang: str | None = None, **kwargs) -> str:
+    """Look up `key` in `lang` if given, else the active language,
+    falling back to English if that language or the key isn't translated."""
+    strings = STRINGS.get(lang or _current_lang, STRINGS[DEFAULT_LANG])
     template = strings.get(key, STRINGS[DEFAULT_LANG].get(key, key))
     return template.format(**kwargs) if kwargs else template

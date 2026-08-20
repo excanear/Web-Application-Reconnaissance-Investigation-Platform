@@ -258,3 +258,60 @@ def test_records_a_failed_nvd_query_to_the_audit_log(monkeypatch):
 
     assert len(audit.entries) == 1
     assert audit.entries[0]["outcome"] == "error: nvd is down"
+
+
+def test_cve_finding_includes_host_and_suspected_status(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {
+        "technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]
+    }
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert len(findings) == 1
+    assert findings[0].data["host"] == "tech.example.com"
+    assert findings[0].data["status"] == "suspected"
+
+
+def test_cve_finding_carries_english_description_and_none_pt_without_a_deepl_key(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    # cve_correlation.settings and app.translate's settings are the same
+    # object (both modules do `from app.config import settings`), so
+    # patching it here also governs translate_en_to_pt's behavior below.
+    monkeypatch.setattr(cve_correlation.settings, "deepl_api_key", None)
+
+    context = {
+        "technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]
+    }
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH], description="A vuln."))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings[0].data["description_en"] == "A vuln."
+    assert findings[0].data["description_pt"] is None
+
+
+def test_cve_finding_carries_translated_description_when_deepl_is_configured(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {
+        "technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]
+    }
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH], description="A vuln."))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        with patch(
+            "app.modules.cve_correlation.translate_en_to_pt", return_value="Uma vulnerabilidade."
+        ) as mock_translate:
+            findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings[0].data["description_pt"] == "Uma vulnerabilidade."
+    assert mock_translate.call_args.kwargs["module"] == "cve_correlation"
+    assert mock_translate.call_args.kwargs["audit_target"] == "CVE-2021-23017"
