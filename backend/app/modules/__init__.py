@@ -10,4 +10,5 @@ from app.modules import (  # noqa: F401
     tech_fingerprint,
     whois_module,
     cve_correlation,
+    nuclei_validation,
 )
