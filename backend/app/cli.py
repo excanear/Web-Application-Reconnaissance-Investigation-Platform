@@ -20,7 +20,13 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
 app = typer.Typer(help="Recon & Investigation CLI")
-console = Console()
+# Explicit width: when stdout isn't a real terminal (piped, redirected, or
+# captured by tests), Rich falls back to an 80-column default that's too
+# narrow for the CVE table's seven columns and ellipsis-truncates cell
+# content (including IDs and status text) instead of wrapping it. A wider
+# fixed width keeps report output legible and untruncated in those cases;
+# a real terminal narrower than this will still soft-wrap normally.
+console = Console(width=160)
 
 ensure_schema()
 
@@ -257,18 +263,46 @@ def _print_report(scan_id: int) -> None:
 
     if cves:
         table = Table(title=i18n.t("cves_title"))
-        for key in ("cve_col_id", "cve_col_severity", "cve_col_cvss", "cve_col_technology", "cve_col_description"):
+        for key in (
+            "cve_col_id",
+            "cve_col_severity",
+            "cve_col_cvss",
+            "cve_col_technology",
+            "cve_col_status",
+            "cve_col_description",
+            "cve_col_evidence",
+        ):
             table.add_column(i18n.t(key))
+        lang = i18n.current_lang()
         for f in cves:
             severity = str(f.data.get("severity") or "")
             style = SEVERITY_STYLE.get(severity)
             severity_cell = f"[{style}]{severity}[/{style}]" if style else severity
+
+            status = f.data.get("status", "suspected")
+            status_key = "status_confirmed" if status == "confirmed" else "status_suspected"
+
+            description_en = f.data.get("description_en", f.data.get("description", ""))
+            description_pt = f.data.get("description_pt")
+            if lang == "pt":
+                description = (
+                    description_pt
+                    if description_pt
+                    else f"{description_en} {i18n.t('translation_unavailable')}".strip()
+                )
+            else:
+                description = description_en
+
+            evidence = f.data.get(f"confirmation_note_{lang}") or f.data.get("confirmation_note_en", "")
+
             table.add_row(
                 f.value,
                 severity_cell,
                 str(f.data.get("cvss_score") or "-"),
                 f"{f.data.get('matched_technology', '')} {f.data.get('matched_technology_version', '')}".strip(),
-                _truncate(str(f.data.get("description", ""))),
+                i18n.t(status_key),
+                _truncate(description),
+                _truncate(evidence) if evidence else "-",
             )
         console.print(table)
 

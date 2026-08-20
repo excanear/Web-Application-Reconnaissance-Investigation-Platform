@@ -517,3 +517,128 @@ def test_audit_command_rejects_invalid_format():
 
     assert result.exit_code == 1
     assert "--format" in result.output
+
+
+def test_report_shows_confirmed_status_and_evidence_for_a_validated_cve():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Confirmed Co", target="confirmed.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-2021-23017",
+                data={
+                    "cvss_score": 9.4,
+                    "severity": "CRITICAL",
+                    "description_en": "A vuln.",
+                    "description_pt": "Uma vulnerabilidade.",
+                    "matched_technology": "nginx",
+                    "matched_technology_version": "1.18.0",
+                    "host": "confirmed.example.com",
+                    "status": "confirmed",
+                    "nuclei_template_id": "CVE-2021-23017",
+                    "matched_at": "https://confirmed.example.com/",
+                    "confirmation_note_en": "Confirmed via nuclei template CVE-2021-23017: matched at https://confirmed.example.com/.",
+                    "confirmation_note_pt": "Confirmado via template nuclei CVE-2021-23017: correspondencia em https://confirmed.example.com/.",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id)])
+    assert result.exit_code == 0
+    assert "Confirmed" in result.output
+    assert "nuclei template CVE-2021-23017" in result.output
+
+    result_pt = runner.invoke(app, ["--lang", "pt", "report", str(scan_id)])
+    assert result_pt.exit_code == 0
+    assert "Confirmada" in result_pt.output
+    assert "Uma vulnerabilidade." in result_pt.output
+
+
+def test_report_marks_a_missing_portuguese_translation_instead_of_showing_nothing():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Untranslated Co", target="untranslated.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-2021-23017",
+                data={
+                    "cvss_score": 9.4,
+                    "severity": "CRITICAL",
+                    "description_en": "A vuln.",
+                    "description_pt": None,
+                    "matched_technology": "nginx",
+                    "matched_technology_version": "1.18.0",
+                    "host": "untranslated.example.com",
+                    "status": "suspected",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["--lang", "pt", "report", str(scan_id)])
+    assert result.exit_code == 0
+    assert "traducao indisponivel" in result.output.lower()
+
+
+def test_report_falls_back_to_suspected_status_for_legacy_findings_without_a_status_field():
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Legacy Co", target="legacy.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id,
+                module="cve_correlation",
+                type="cve",
+                value="CVE-2021-23017",
+                data={
+                    "cvss_score": 9.4,
+                    "severity": "CRITICAL",
+                    "description": "A vuln.",
+                    "matched_technology": "nginx",
+                    "matched_technology_version": "1.18.0",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id)])
+    assert result.exit_code == 0
+    assert "Suspected" in result.output
+    assert "A vuln." in result.output
