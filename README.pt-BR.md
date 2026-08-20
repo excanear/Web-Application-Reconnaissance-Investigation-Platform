@@ -382,13 +382,13 @@ registra um único achado `module_error` e todo achado de CVE permanece
 `suspected` — o resto do scan não é afetado.
 
 1. Instale `nuclei`: https://github.com/projectdiscovery/nuclei#install-nuclei
-2. Atualize sua biblioteca de templates (obrigatório — a ferramenta nunca
-   vende templates embutidos): `nuclei -update-templates`
+2. Atualize sua biblioteca de templates (obrigatório — a ferramenta não vem
+   com templates embutidos): `nuclei -update-templates`
 3. Re-rode `nuclei -update-templates` periodicamente para pegar templates
    de CVEs recém-divulgadas.
 
 Toda invocação de `nuclei` exclui incondicionalmente templates com tags
-`dos`, `fuzz` e `intrusive` — é uma barreira codificada em hard code,
+`dos`, `fuzz` e `intrusive` — é uma restrição de segurança codificada,
 não uma configuração.
 
 ### Configurar a chave de API do NVD (opcional, recomendado)
