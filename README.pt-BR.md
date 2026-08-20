@@ -373,6 +373,24 @@ não é obrigatório instalar pra usar a ferramenta.
 ./scripts/install.sh
 ```
 
+### Instalar `nuclei` (opcional, necessário para validação de CVE)
+
+`nuclei_validation` confirma ativamente um subconjunto dos achados de CVE
+`suspected` rodando templates mantidos pela comunidade do `nuclei`
+casados por ID de CVE contra o alvo. Sem `nuclei` instalado, este módulo
+registra um único achado `module_error` e todo achado de CVE permanece
+`suspected` — o resto do scan não é afetado.
+
+1. Instale `nuclei`: https://github.com/projectdiscovery/nuclei#install-nuclei
+2. Atualize sua biblioteca de templates (obrigatório — a ferramenta nunca
+   vende templates embutidos): `nuclei -update-templates`
+3. Re-rode `nuclei -update-templates` periodicamente para pegar templates
+   de CVEs recém-divulgadas.
+
+Toda invocação de `nuclei` exclui incondicionalmente templates com tags
+`dos`, `fuzz` e `intrusive` — é uma barreira codificada em hard code,
+não uma configuração.
+
 ### Configurar a chave de API do NVD (opcional, recomendado)
 
 Sem chave, o limite de consulta ao NVD é de 5 requisições a cada 30
@@ -545,6 +563,7 @@ arquivo e importar em `app/modules/__init__.py`.
 | `tech_fingerprint` | 50 | **sim** | Motor de 29 regras de fingerprint ativo — ver seção dedicada abaixo |
 | `whois` | 50 | não | Consulta os dados reais de registro do domínio |
 | `cve_correlation` | 90 | não | Correlaciona cada tecnologia com versão conhecida contra a API real do NVD |
+| `nuclei_validation` | 95 | **sim** | Roda templates do `nuclei` casados por ID de CVE contra achados de CVE `suspected` pra confirmar a exploitabilidade, excluindo templates com tags `dos`/`fuzz`/`intrusive` |
 
 "Ativo" = envia requisições diretamente contra o alvo/subdomínios, além
 de consultar serviços de terceiros. Módulos ativos exigem
@@ -593,6 +612,17 @@ como texto literal). A abordagem real:
 Validado ao vivo: `nginx 1.18.0` retorna corretamente **46 CVEs reais**
 contra a API de produção do NVD.
 
+A coluna **Status** do relatório para cada CVE mostra `suspected` ou
+`confirmed`. `suspected` significa que a versão cai dentro do range de
+CPE do CVE de acordo com o NVD — esse é o resultado da correlação
+estrutural sozinha. `confirmed` significa que `nuclei_validation` rodou
+um template mantido pela comunidade para aquele CVE contra o alvo e o
+template reportou um resultado positivo, confirmando que a
+vulnerabilidade pode ser de fato reproduzida via uma verificação segura
+(sem exploração, apenas detecção). A coluna **Evidence** para CVEs
+confirmados mostra qual ID de template do `nuclei` casou e em qual
+timestamp.
+
 ## Configuração
 
 Variáveis de ambiente lidas de `backend/.env` (nunca commitado —
@@ -602,6 +632,7 @@ Variáveis de ambiente lidas de `backend/.env` (nunca commitado —
 |---|---|---|---|
 | `DATABASE_URL` | não | `sqlite:///./dev.db` | String de conexão SQLAlchemy. SQLite local por padrão — funciona sem nenhum banco externo |
 | `NVD_API_KEY` | não | (nenhuma) | Eleva o limite de requisição ao NVD de 5/30s pra 50/30s. Gratuita em nvd.nist.gov |
+| `DEEPL_API_KEY` | não | (nenhuma) | Habilita a tradução para português das descrições de CVE do NVD. Tier gratuito em deepl.com. Sem ela, as descrições de CVE ficam apenas em inglês e o relatório marca a célula de português como indisponível quando `--lang pt` é usado. |
 
 ## Dados e persistência
 
