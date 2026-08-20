@@ -108,6 +108,51 @@ def test_excludes_cve_for_a_different_product_sharing_keyword_results(monkeypatc
     assert findings == []
 
 
+def test_excludes_a_different_apache_product_sharing_the_apache_vendor_field(monkeypatch):
+    # Regression: "Apache" (our web-server rule, meaning Apache HTTP Server)
+    # used to match any CPE whose *vendor* field was "apache" -- including
+    # unrelated Apache Software Foundation products like Log4j -- because
+    # matching searched the whole criteria string instead of the product
+    # field specifically.
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "Apache", "version": "2.4.7", "host": "example.com"}]}
+    log4j_match = {
+        "vulnerable": True,
+        "criteria": "cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*",
+    }
+    payload = _nvd_response(_cve("CVE-2021-44228", [log4j_match]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings == []
+
+
+def test_still_matches_apache_http_server_itself_via_the_product_alias(monkeypatch):
+    # The alias that fixes the false-positive above must not also break the
+    # legitimate case: Apache HTTP Server's own CPE product is "http_server",
+    # not "apache".
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "Apache", "version": "2.4.7", "host": "example.com"}]}
+    http_server_match = {
+        "vulnerable": True,
+        "criteria": "cpe:2.3:a:apache:http_server:*:*:*:*:*:*:*:*",
+        "versionStartIncluding": "2.4.0",
+        "versionEndIncluding": "2.4.39",
+    }
+    payload = _nvd_response(_cve("CVE-2019-10092", [http_server_match]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert len(findings) == 1
+    assert findings[0].value == "CVE-2019-10092"
+
+
 def test_sends_api_key_header_when_configured(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", "test-key-123")
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)

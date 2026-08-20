@@ -42,15 +42,30 @@ def _version_in_range(version: str, start_inc, start_exc, end_inc, end_exc) -> b
     return True
 
 
+# Some fingerprinted display names don't match their CPE product slug --
+# e.g. our "Apache" web-server rule means Apache HTTP Server, whose CPE
+# product is "http_server", not "apache". Matching the raw display name
+# against the *vendor* field (as a whole-criteria substring search does)
+# spuriously matches every unrelated product from the same vendor -- for
+# "apache" that means Log4j, Tomcat, Struts, ActiveMQ, etc. all showing up
+# as "suspected" CVEs for the web server alone.
+_CPE_PRODUCT_ALIASES = {"apache": "httpserver"}  # matched against a dash/underscore-stripped product field
+
+
 def _cve_matches_version(cve: dict, name: str, version: str) -> bool:
     needle = name.lower().replace(" ", "").replace("-", "").replace("_", "")
+    needle = _CPE_PRODUCT_ALIASES.get(needle, needle)
     for config in cve.get("configurations", []):
         for node in config.get("nodes", []):
             for match in node.get("cpeMatch", []):
                 if not match.get("vulnerable", False):
                     continue
-                criteria = match.get("criteria", "").lower().replace("-", "").replace("_", "")
-                if needle not in criteria:
+                parts = match.get("criteria", "").split(":")
+                # cpe:2.3:a:vendor:product:version:... -- match against the
+                # product field specifically, not the whole criteria string,
+                # so a shared vendor never causes a false match on its own.
+                product = parts[4].lower().replace("-", "").replace("_", "") if len(parts) > 4 else ""
+                if needle not in product:
                     continue
 
                 start_inc = match.get("versionStartIncluding")
@@ -64,7 +79,6 @@ def _cve_matches_version(cve: dict, name: str, version: str) -> bool:
 
                 # No range given: the CPE's own version component may pin
                 # an exact version (5th field of cpe:2.3:a:vendor:product:VERSION:...).
-                parts = match.get("criteria", "").split(":")
                 if len(parts) > 5 and parts[5] not in ("*", "-") and parts[5] == version:
                     return True
     return False
