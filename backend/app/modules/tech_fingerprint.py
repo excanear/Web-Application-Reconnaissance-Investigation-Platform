@@ -1,7 +1,9 @@
+# backend/app/modules/tech_fingerprint.py
 import re
 
 import requests
 
+from app import wappalyzer
 from app.audit import AuditLog
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
@@ -9,190 +11,19 @@ from app.scope import is_in_scope
 
 DEFAULT_RATE_LIMIT = 5.0
 DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
+REQUEST_TIMEOUT = 10
 
-# Seed ruleset -- extensible without touching the engine below. Each rule:
-# category, name, match_type (header/cookie/meta_generator/html_regex/
-# path_probe), and a pattern whose first capture group (if any) is the
-# version. Presence-only rules (no version ever exposed) use pattern r".+".
-FINGERPRINT_RULES = [
-    # -- Web servers --
-    {
-        "category": "web_server",
-        "name": "nginx",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"nginx/?([\d.]+)?",
-    },
-    {
-        "category": "web_server",
-        "name": "Apache",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"Apache/?([\d.]+)?",
-    },
-    {
-        "category": "web_server",
-        "name": "Microsoft-IIS",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"Microsoft-IIS/?([\d.]+)?",
-    },
-    {
-        "category": "web_server",
-        "name": "Tomcat",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"(?:Apache-Coyote|Tomcat)/?([\d.]+)?",
-    },
-    # -- CDN / WAF --
-    {
-        "category": "cdn_waf",
-        "name": "Cloudflare",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"cloudflare",
-    },
-    {
-        "category": "cdn_waf",
-        "name": "Akamai",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"AkamaiGHost",
-    },
-    {
-        "category": "cdn_waf",
-        "name": "Varnish",
-        "match_type": "header",
-        "header": "Via",
-        "pattern": r"varnish",
-    },
-    {
-        "category": "cdn_waf",
-        "name": "AWS CloudFront",
-        "match_type": "header",
-        "header": "Via",
-        "pattern": r"CloudFront",
-    },
-    {
-        "category": "cdn_waf",
-        "name": "Fastly",
-        "match_type": "header",
-        "header": "X-Served-By",
-        "pattern": r".+",
-    },
-    # -- Backend language / framework --
-    {
-        "category": "backend",
-        "name": "PHP",
-        "match_type": "header",
-        "header": "X-Powered-By",
-        "pattern": r"PHP/?([\d.]+)?",
-    },
-    {
-        "category": "backend",
-        "name": "ASP.NET",
-        "match_type": "header",
-        "header": "X-AspNet-Version",
-        "pattern": r"([\d.]+)",
-    },
-    {
-        "category": "backend",
-        "name": "Express",
-        "match_type": "header",
-        "header": "X-Powered-By",
-        "pattern": r"Express",
-    },
-    {
-        "category": "backend",
-        "name": "Werkzeug/Flask",
-        "match_type": "header",
-        "header": "Server",
-        "pattern": r"Werkzeug/?([\d.]+)?",
-    },
-    {
-        "category": "backend",
-        "name": "Ruby on Rails",
-        "match_type": "header",
-        "header": "X-Runtime",
-        "pattern": r".+",
-    },
-    {"category": "backend", "name": "PHP", "match_type": "cookie", "cookie": "PHPSESSID"},
-    {"category": "backend", "name": "Java", "match_type": "cookie", "cookie": "JSESSIONID"},
-    {"category": "backend", "name": "Laravel", "match_type": "cookie", "cookie": "laravel_session"},
-    {"category": "backend", "name": "Django", "match_type": "cookie", "cookie": "csrftoken"},
-    # -- CMS --
+# Project-specific extension, not a native Wappalyzer check type: an
+# active path probe for cases needing more precise version detection
+# than a passive header/cookie/meta/html/scriptSrc check can offer.
+PATH_PROBE_RULES = [
     {
         "category": "cms",
         "name": "WordPress",
-        "match_type": "meta_generator",
-        "pattern": r"WordPress\s*([\d.]+)?",
-    },
-    {
-        "category": "cms",
-        "name": "WordPress",
-        "match_type": "path_probe",
         "path": "/CHANGELOG.txt",
         "pattern": r"Version\s+([\d.]+)",
     },
-    {
-        "category": "cms",
-        "name": "Drupal",
-        "match_type": "meta_generator",
-        "pattern": r"Drupal\s*([\d.]+)?",
-    },
-    {
-        "category": "cms",
-        "name": "Joomla",
-        "match_type": "meta_generator",
-        "pattern": r"Joomla!?\s*([\d.]+)?",
-    },
-    {
-        "category": "cms",
-        "name": "Shopify",
-        "match_type": "header",
-        "header": "X-Shopify-Stage",
-        "pattern": r".+",
-    },
-    # -- Frontend / JS frameworks (body content) --
-    {
-        "category": "frontend",
-        "name": "Angular",
-        "match_type": "html_regex",
-        "pattern": r'ng-version="([\d.]+)"',
-    },
-    {
-        "category": "frontend",
-        "name": "React",
-        "match_type": "html_regex",
-        "pattern": r"data-reactroot|react-dom",
-    },
-    {
-        "category": "frontend",
-        "name": "Vue.js",
-        "match_type": "html_regex",
-        "pattern": r"data-v-app|__vue__|Vue\.js",
-    },
-    {
-        "category": "frontend",
-        "name": "Next.js",
-        "match_type": "html_regex",
-        "pattern": r"__NEXT_DATA__",
-    },
-    {
-        "category": "frontend",
-        "name": "jQuery",
-        "match_type": "html_regex",
-        "pattern": r"jquery[.-]?([\d.]+)?(?:\.min)?\.js",
-    },
-    {
-        "category": "frontend",
-        "name": "Bootstrap",
-        "match_type": "html_regex",
-        "pattern": r"bootstrap[.-]?([\d.]+)?(?:\.min)?\.(?:css|js)",
-    },
 ]
-
-REQUEST_TIMEOUT = 10
 
 
 @register_module
@@ -208,6 +39,9 @@ class TechFingerprintModule(ReconModule):
         breaker = CircuitBreaker(
             context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
         )
+        technologies = context.get("wappalyzer_technologies")
+        if technologies is None:
+            technologies = wappalyzer.load_technologies()
 
         findings: list[Finding] = []
         for index, host in enumerate(hosts):
@@ -218,7 +52,7 @@ class TechFingerprintModule(ReconModule):
                 continue
 
             limiter.wait()
-            host_findings, reached_host = self._fingerprint_host(host, limiter, audit)
+            host_findings, reached_host = self._fingerprint_host(host, limiter, audit, technologies)
             findings.extend(host_findings)
 
             if reached_host:
@@ -236,7 +70,9 @@ class TechFingerprintModule(ReconModule):
                 break
         return findings
 
-    def _fingerprint_host(self, host: str, limiter: RateLimiter, audit: AuditLog | None) -> tuple[list[Finding], bool]:
+    def _fingerprint_host(
+        self, host: str, limiter: RateLimiter, audit: AuditLog | None, technologies: dict
+    ) -> tuple[list[Finding], bool]:
         url = f"https://{host}/"
         try:
             response = requests.get(url, timeout=REQUEST_TIMEOUT)
@@ -248,68 +84,32 @@ class TechFingerprintModule(ReconModule):
         if audit is not None:
             audit.record(module=self.name, target=host, outcome=str(response.status_code), url=url)
 
-        findings = []
-        for rule in FINGERPRINT_RULES:
-            finding = self._apply_rule(host, rule, response, limiter, audit)
+        findings = wappalyzer.match_technologies(host, response, technologies=technologies)
+        for rule in PATH_PROBE_RULES:
+            finding = self._apply_path_probe_rule(host, rule, limiter, audit)
             if finding is not None:
                 findings.append(finding)
         return findings, True
 
-    def _apply_rule(self, host: str, rule: dict, response, limiter: RateLimiter, audit: AuditLog | None) -> Finding | None:
-        if rule["match_type"] == "header":
-            value = response.headers.get(rule["header"], "")
-            match = re.search(rule["pattern"], value, re.IGNORECASE)
-            if not match:
-                return None
-            return self._finding(host, rule, match, source="header")
-
-        if rule["match_type"] == "cookie":
-            if rule["cookie"] not in response.cookies:
-                return None
-            return self._finding(host, rule, match=None, source="cookie")
-
-        if rule["match_type"] == "meta_generator":
-            meta_match = re.search(
-                r'<meta[^>]+name=["\']generator["\'][^>]+content=["\']([^"\']+)["\']',
-                response.text,
-                re.IGNORECASE,
-            )
-            if meta_match is None:
-                return None
-            match = re.search(rule["pattern"], meta_match.group(1), re.IGNORECASE)
-            if not match:
-                return None
-            return self._finding(host, rule, match, source="meta_generator")
-
-        if rule["match_type"] == "html_regex":
-            match = re.search(rule["pattern"], response.text, re.IGNORECASE)
-            if not match:
-                return None
-            return self._finding(host, rule, match, source="html_regex")
-
-        if rule["match_type"] == "path_probe":
-            limiter.wait()
-            probe_url = f"https://{host}{rule['path']}"
-            try:
-                probe = requests.get(probe_url, timeout=REQUEST_TIMEOUT)
-            except requests.RequestException as exc:
-                if audit is not None:
-                    audit.record(module=self.name, target=host, outcome=f"error: {exc}", url=probe_url)
-                return None
+    def _apply_path_probe_rule(
+        self, host: str, rule: dict, limiter: RateLimiter, audit: AuditLog | None
+    ) -> Finding | None:
+        limiter.wait()
+        probe_url = f"https://{host}{rule['path']}"
+        try:
+            probe = requests.get(probe_url, timeout=REQUEST_TIMEOUT)
+        except requests.RequestException as exc:
             if audit is not None:
-                audit.record(module=self.name, target=host, outcome=str(probe.status_code), url=probe_url)
-            if probe.status_code != 200:
-                return None
-            match = re.search(rule["pattern"], probe.text, re.IGNORECASE)
-            if not match:
-                return None
-            return self._finding(host, rule, match, source="path_probe")
-
-        return None
-
-    @staticmethod
-    def _finding(host: str, rule: dict, match, source: str) -> Finding:
-        version = match.group(1) if match and match.groups() else None
+                audit.record(module=self.name, target=host, outcome=f"error: {exc}", url=probe_url)
+            return None
+        if audit is not None:
+            audit.record(module=self.name, target=host, outcome=str(probe.status_code), url=probe_url)
+        if probe.status_code != 200:
+            return None
+        match = re.search(rule["pattern"], probe.text, re.IGNORECASE)
+        if not match:
+            return None
+        version = match.group(1) if match.groups() else None
         return Finding(
             type="technology",
             value=host,
@@ -318,6 +118,6 @@ class TechFingerprintModule(ReconModule):
                 "name": rule["name"],
                 "version": version,
                 "confidence": "high" if version else "medium",
-                "source": source,
+                "source": "path_probe",
             },
         )
