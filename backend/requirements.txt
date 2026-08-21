@@ -5,3 +5,5 @@ requests==2.34.2
 typer==0.27.1
 rich==15.0.0
 pytest==9.0.3
+reportlab==5.0.1
+pypdf==6.16.1  # test-only: extracts text from generated PDFs to verify report_pdf.py's output

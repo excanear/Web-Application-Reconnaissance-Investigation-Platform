@@ -1,4 +1,6 @@
 import csv
+import io
+import os
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -691,3 +693,84 @@ def test_report_falls_back_to_suspected_status_for_legacy_findings_without_a_sta
     assert result.exit_code == 0
     assert "Suspected" in result.output
     assert "A vuln." in result.output
+
+
+def test_report_rejects_an_invalid_format():
+    result = runner.invoke(app, ["report", "1", "--format", "xml"])
+
+    assert result.exit_code == 1
+    assert "table" in result.output.lower()
+
+
+def test_report_csv_format_writes_a_header_and_one_row_per_cve():
+    db = SessionLocal()
+    try:
+        project = models.Project(name="CSV Co", target="csv.example.com", scope_notes="ok", authorized=True)
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        db.add(
+            models.Finding(
+                scan_id=scan_row.id, module="cve_correlation", type="cve", value="CVE-2021-23017",
+                data={
+                    "cvss_score": 9.4, "severity": "CRITICAL", "epss_score": 0.5,
+                    "description_en": "A vuln.", "description_pt": None,
+                    "matched_technology": "nginx", "matched_technology_version": "1.18.0",
+                    "host": "csv.example.com", "status": "suspected",
+                },
+            )
+        )
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id), "--format", "csv"])
+
+    assert result.exit_code == 0
+    rows = list(csv.reader(io.StringIO(result.output)))
+    assert rows[0][0] == "cve"
+    assert rows[1][0] == "CVE-2021-23017"
+
+
+def test_report_pdf_format_writes_a_file_and_reports_its_path(tmp_path):
+    db = SessionLocal()
+    try:
+        project = models.Project(name="PDF Co", target="pdf.example.com", scope_notes="ok", authorized=True)
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    output_path = str(tmp_path / "custom_report.pdf")
+    result = runner.invoke(app, ["report", str(scan_id), "--format", "pdf", "--output", output_path])
+
+    assert result.exit_code == 0
+    assert output_path in result.output
+    assert os.path.exists(output_path)
+
+
+def test_report_pdf_format_defaults_to_report_scan_id_pdf_in_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db = SessionLocal()
+    try:
+        project = models.Project(name="Default PDF Co", target="defaultpdf.example.com", scope_notes="ok", authorized=True)
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+        scan_id = scan_row.id
+    finally:
+        db.close()
+
+    result = runner.invoke(app, ["report", str(scan_id), "--format", "pdf"])
+
+    assert result.exit_code == 0
+    assert os.path.exists(tmp_path / f"report_{scan_id}.pdf")

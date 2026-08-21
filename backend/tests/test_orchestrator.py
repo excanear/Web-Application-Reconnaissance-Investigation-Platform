@@ -2,7 +2,7 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 from app.db import Base, engine, SessionLocal
-from app import models
+from app import models, report_csv, report_data, report_pdf
 from app.modules.base import Finding, MODULE_REGISTRY, ReconModule, register_module
 from app.orchestrator import run_scan
 
@@ -716,3 +716,88 @@ def test_run_scan_merges_cve_validation_finding_into_the_matching_cve_finding():
     assert cve_rows[0].data["status"] == "confirmed"
     assert cve_rows[0].data["nuclei_template_id"] == "CVE-2021-23017"
     assert validation_rows == []
+
+
+def test_epss_score_and_remediation_survive_into_report_data_and_all_renderers(tmp_path):
+    """Exercises the full real pipeline: a cve Finding carrying an epss_score
+    (what cve_correlation + fetch_epss would produce) gets merged, via the
+    orchestrator's real _apply_cve_validation, with a cve_validation Finding
+    carrying a remediation_en (what nuclei_validation would produce for a
+    confirmed CVE) -- and both values must survive into build_report_data()
+    and flow into the CSV and PDF renderers, none of which is covered by any
+    single existing task's tests."""
+
+    class _CveProducingModuleForPipeline(ReconModule):
+        name = "_test_cve_producing_module_for_pipeline"
+        run_order = 90
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve",
+                    value="CVE-2021-44228",
+                    data={
+                        "host": "tech.example.com",
+                        "status": "suspected",
+                        "severity": "CRITICAL",
+                        "cvss_score": 10.0,
+                        "epss_score": 0.975,
+                        "matched_technology": "log4j",
+                        "matched_technology_version": "2.14.1",
+                        "description_en": "Remote code execution in log4j.",
+                        "confirmation_note_en": "-",
+                    },
+                )
+            ]
+
+    class _ValidationModuleForPipeline(ReconModule):
+        name = "_test_validation_module_for_pipeline"
+        run_order = 95
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve_validation",
+                    value="CVE-2021-44228",
+                    data={
+                        "host": "tech.example.com",
+                        "status": "confirmed",
+                        "nuclei_template_id": "CVE-2021-44228",
+                        "remediation_en": "Upgrade log4j to 2.17.1 or later.",
+                        "confirmation_note_en": "Confirmed via nuclei template CVE-2021-44228.",
+                    },
+                )
+            ]
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_CveProducingModuleForPipeline)
+        register_module(_ValidationModuleForPipeline)
+        with _mock_all_modules(
+            exclude={_CveProducingModuleForPipeline.name, _ValidationModuleForPipeline.name}
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_CveProducingModuleForPipeline.name]
+        del MODULE_REGISTRY[_ValidationModuleForPipeline.name]
+
+    data = report_data.build_report_data(scan_id, "en")
+
+    assert data is not None
+    assert len(data.cves) == 1
+    row = data.cves[0]
+    assert row.cve_id == "CVE-2021-44228"
+    assert row.status == "confirmed"
+    assert row.epss_score == 0.975
+    assert row.remediation == "Upgrade log4j to 2.17.1 or later."
+
+    csv_text = report_csv.render_csv(data, "en")
+    assert "CVE-2021-44228" in csv_text
+
+    pdf_path = str(tmp_path / "pipeline_report.pdf")
+    report_pdf.render_pdf(data, pdf_path, "en")
+    from pypdf import PdfReader
+
+    reader = PdfReader(pdf_path)
+    pdf_text = "\n".join(page.extract_text() for page in reader.pages)
+    assert "CVE-2021-44228" in pdf_text.replace("\n", "")

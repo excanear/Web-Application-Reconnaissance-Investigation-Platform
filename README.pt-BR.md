@@ -469,6 +469,39 @@ Reimprime o relatório formatado de um scan já concluído, sem rodar nada
 de novo — útil pra revisitar um resultado sem gastar requisições novas
 contra o alvo ou o NVD.
 
+### Exportando um relatório
+
+`recon report <scan_id>` usa por padrão a tabela do terminal mostrada
+acima. Dois formatos adicionais estão disponíveis:
+
+- `recon report <scan_id> --format csv` — uma linha por CVE encontrado
+  (`cve, severity, cvss, epss, status, technology, host, description,
+  evidence, remediation`), escrito no stdout. Os nomes das colunas são
+  fixos e em inglês independente do `--lang`, seguindo a mesma
+  convenção de `recon audit --format csv` — CSV é pra máquina/planilha,
+  não pro idioma de exibição da CLI.
+- `recon report <scan_id> --format pdf [--output CAMINHO]` — um PDF
+  autocontido (resumo executivo, tecnologias detectadas e CVEs
+  priorizados por CVSS com EPSS como desempate), no idioma de
+  `--lang`. Sem `--output`/`-o`, o arquivo é salvo como
+  `report_<scan_id>.pdf` no diretório atual. Gerar um PDF não exige
+  instalar nenhuma ferramenta externa -- `reportlab` é uma dependência
+  Python pura, já fixada em `requirements.txt`, diferente de
+  `nuclei`/`subfinder`/`httpx`.
+
+O score EPSS de cada CVE (probabilidade de exploração, vindo da API
+pública gratuita do FIRST.org) é buscado e salvo uma única vez, durante
+o scan, do mesmo jeito que os dados de NVD/DeepL já funcionam --
+`report`/exportação nunca tocam a rede. O CVSS continua sendo o sinal
+principal de prioridade; o EPSS só desempata CVEs que já compartilham o
+mesmo CVSS.
+
+A recomendação de remediação vem do próprio texto `remediation` do
+template `nuclei` que confirmou o CVE, quando o status é `confirmed`;
+caso contrário, uma mensagem genérica de "atualize para uma versão
+corrigida" nomeia a tecnologia afetada sem chutar um número de versão
+específico.
+
 ### Ver a trilha de auditoria
 
 ```bash

@@ -4,6 +4,7 @@ import requests
 
 from app.audit import AuditLog
 from app.config import settings
+from app.epss import fetch_epss
 from app.modules.base import Finding, ReconModule, register_module
 from app.ratelimit import CircuitBreaker
 from app.translate import translate_en_to_pt
@@ -183,6 +184,7 @@ class CveCorrelationModule(ReconModule):
             if description_en
             else None
         )
+        epss_score = fetch_epss(cve.get("id", ""), audit=audit)
 
         cvss_score = None
         severity = None
@@ -201,6 +203,7 @@ class CveCorrelationModule(ReconModule):
             data={
                 "cvss_score": cvss_score,
                 "severity": severity,
+                "epss_score": epss_score,
                 "description_en": description_en,
                 "description_pt": description_pt,
                 "matched_technology": tech_name,

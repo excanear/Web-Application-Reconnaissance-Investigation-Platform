@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from app import i18n, models
+from app import i18n, models, report_csv, report_data, report_pdf
 from app.db import SessionLocal, ensure_schema
 from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
@@ -150,7 +150,9 @@ def scan(
         circuit_breaker_threshold=circuit_breaker_threshold,
     )
 
-    _print_report(scan_id)
+    lang = i18n.current_lang()
+    data = report_data.build_report_data(scan_id, lang)
+    _render_table(data, lang)
 
 
 @app.command()
@@ -178,8 +180,33 @@ def history() -> None:
 
 
 @app.command()
-def report(scan_id: int = typer.Argument(..., help="ID of a previously run scan")) -> None:
-    _print_report(scan_id)
+def report(
+    scan_id: int = typer.Argument(..., help="ID of a previously run scan"),
+    format: str = typer.Option("table", "--format", help="Output format: table (default), csv, or pdf"),
+    output: str = typer.Option(None, "--output", "-o", help="Output file path (pdf format only)"),
+) -> None:
+    if format not in ("table", "csv", "pdf"):
+        console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('invalid_report_format')}")
+        raise typer.Exit(code=1)
+
+    lang = i18n.current_lang()
+    data = report_data.build_report_data(scan_id, lang)
+    if data is None:
+        console.print(f"[red]{i18n.t('scan_not_found', scan_id=scan_id)}[/red]")
+        raise typer.Exit(code=1)
+
+    if format == "table":
+        _render_table(data, lang)
+    elif format == "csv":
+        sys.stdout.write(report_csv.render_csv(data, lang))
+    else:
+        path = output or f"report_{scan_id}.pdf"
+        try:
+            report_pdf.render_pdf(data, path, lang)
+        except OSError as exc:
+            console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('report_pdf_write_failed', error=str(exc))}")
+            raise typer.Exit(code=1)
+        console.print(i18n.t("report_pdf_saved", path=path))
 
 
 @app.command()
@@ -226,101 +253,59 @@ def audit(
     console.print(table)
 
 
-def _print_report(scan_id: int) -> None:
-    db = SessionLocal()
-    try:
-        scan_row = db.get(models.Scan, scan_id)
-        if scan_row is None:
-            console.print(f"[red]{i18n.t('scan_not_found', scan_id=scan_id)}[/red]")
-            raise typer.Exit(code=1)
-        findings = list(scan_row.findings)
-        status = scan_row.status
-    finally:
-        db.close()
+def _render_table(data, lang: str) -> None:
+    console.print(f"\n[bold]Scan #{data.scan_id}[/bold] - {i18n.t('status_label', status=data.status)}")
 
-    console.print(f"\n[bold]Scan #{scan_id}[/bold] - {i18n.t('status_label', status=status)}")
-
-    technologies = [f for f in findings if f.type == "technology"]
-    cves = sorted(
-        [f for f in findings if f.type == "cve"],
-        key=lambda f: -(f.data.get("cvss_score") or 0),
-    )
-    other = [f for f in findings if f.type not in ("technology", "cve")]
-
-    if technologies:
+    if data.technologies:
         table = Table(title=i18n.t("technologies_title"))
         for key in ("tech_col_category", "tech_col_name", "tech_col_version", "tech_col_confidence", "tech_col_host"):
             table.add_column(i18n.t(key))
-        for f in technologies:
+        for tech in data.technologies:
             table.add_row(
-                str(f.data.get("category", "")),
-                str(f.data.get("name", "")),
-                str(f.data.get("version") or "-"),
-                str(f.data.get("confidence", "")),
-                f.value,
+                str(tech.get("category", "")),
+                str(tech.get("name", "")),
+                str(tech.get("version") or "-"),
+                str(tech.get("confidence", "")),
+                str(tech.get("host", "")),
             )
         console.print(table)
 
-    if cves:
+    if data.cves:
         table = Table(title=i18n.t("cves_title"))
         for key in (
-            "cve_col_id",
-            "cve_col_severity",
-            "cve_col_cvss",
-            "cve_col_technology",
-            "cve_col_status",
-            "cve_col_description",
-            "cve_col_evidence",
+            "cve_col_id", "cve_col_severity", "cve_col_cvss", "cve_col_technology",
+            "cve_col_status", "cve_col_description", "cve_col_evidence",
         ):
             table.add_column(i18n.t(key))
-        lang = i18n.current_lang()
-        for f in cves:
-            severity = str(f.data.get("severity") or "")
-            style = SEVERITY_STYLE.get(severity)
-            severity_cell = f"[{style}]{severity}[/{style}]" if style else severity
+        for row in data.cves:
+            style = SEVERITY_STYLE.get(row.severity)
+            severity_cell = f"[{style}]{row.severity}[/{style}]" if style else row.severity
+            status_key = "status_confirmed" if row.status == "confirmed" else "status_suspected"
 
-            status = f.data.get("status", "suspected")
-            status_key = "status_confirmed" if status == "confirmed" else "status_suspected"
-
-            description_en = f.data.get("description_en", f.data.get("description", ""))
-            description_pt = f.data.get("description_pt")
-            if lang == "pt":
-                if description_pt:
-                    description = description_pt
-                else:
-                    # Truncate the English text first so the marker always
-                    # survives -- appending it before truncation let a long
-                    # real-world NVD description (typically 200+ chars) push
-                    # the marker itself past DESCRIPTION_MAX_LENGTH, silently
-                    # dropping it and leaving the PT report indistinguishable
-                    # from a successful translation. _truncate() can itself
-                    # overshoot its own max_length by up to 3 chars (its
-                    # "..." suffix), so reserve for that too.
-                    suffix = f" {i18n.t('translation_unavailable')}"
-                    budget = max(0, DESCRIPTION_MAX_LENGTH - len(suffix) - 3)
-                    description = f"{_truncate(description_en, budget)}{suffix}"
+            if lang == "pt" and not row.description_translated:
+                suffix = f" {i18n.t('translation_unavailable')}"
+                budget = max(0, DESCRIPTION_MAX_LENGTH - len(suffix) - 3)
+                description_cell = f"{_truncate(row.description, budget)}{suffix}"
             else:
-                description = description_en
-
-            evidence = f.data.get(f"confirmation_note_{lang}") or f.data.get("confirmation_note_en", "")
+                description_cell = row.description
 
             table.add_row(
-                f.value,
+                row.cve_id,
                 severity_cell,
-                str(f.data.get("cvss_score") or "-"),
-                f"{f.data.get('matched_technology', '')} {f.data.get('matched_technology_version', '')}".strip(),
+                str(row.cvss_score or "-"),
+                row.technology,
                 i18n.t(status_key),
-                _truncate(description),
-                _truncate(evidence) if evidence else "-",
+                _truncate(description_cell),
+                _truncate(row.evidence),
             )
         console.print(table)
 
-    if other:
+    if data.other:
         table = Table(title=i18n.t("other_findings_title"))
         for key in ("other_col_type", "other_col_value", "other_col_module"):
             table.add_column(i18n.t(key))
-        for f in other:
-            table.add_row(f.type, f.value, f.module)
+        for item in data.other:
+            table.add_row(item["type"], item["value"], item["module"])
         console.print(table)
 
 

@@ -41,6 +41,7 @@ def _mock_response(payload, status_code=200):
 def test_correlates_technology_whose_version_falls_inside_the_cpe_range(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
     payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
@@ -79,6 +80,7 @@ def test_excludes_cve_whose_range_does_not_cover_the_detected_version(monkeypatc
 def test_matches_cve_pinned_to_an_exact_cpe_version_with_no_range(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.19.0"}]}
     payload = _nvd_response(_cve("CVE-2099-99999", [NGINX_EXACT_MATCH]))
@@ -136,6 +138,7 @@ def test_still_matches_apache_http_server_itself_via_the_product_alias(monkeypat
     # not "apache".
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {"technologies": [{"name": "Apache", "version": "2.4.7", "host": "example.com"}]}
     http_server_match = {
@@ -156,6 +159,7 @@ def test_still_matches_apache_http_server_itself_via_the_product_alias(monkeypat
 def test_sends_api_key_header_when_configured(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", "test-key-123")
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
     payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
@@ -194,6 +198,7 @@ def test_returns_empty_list_when_no_technologies_in_context(monkeypatch):
 def test_isolates_one_failing_technology_query_and_keeps_the_rest(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {
         "technologies": [
@@ -244,6 +249,7 @@ def test_sleeps_between_requests_to_respect_nvd_rate_limit(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     sleep_calls = []
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {
         "technologies": [
@@ -265,6 +271,7 @@ def test_records_a_successful_nvd_query_to_the_audit_log(monkeypatch):
 
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {"technologies": [{"name": "nginx", "version": "1.18.0"}]}
     payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
@@ -308,6 +315,7 @@ def test_records_a_failed_nvd_query_to_the_audit_log(monkeypatch):
 def test_cve_finding_includes_host_and_suspected_status(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {
         "technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]
@@ -325,6 +333,7 @@ def test_cve_finding_includes_host_and_suspected_status(monkeypatch):
 def test_cve_finding_carries_english_description_and_none_pt_without_a_deepl_key(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
     # cve_correlation.settings and app.translate's settings are the same
     # object (both modules do `from app.config import settings`), so
     # patching it here also governs translate_en_to_pt's behavior below.
@@ -345,6 +354,7 @@ def test_cve_finding_carries_english_description_and_none_pt_without_a_deepl_key
 def test_cve_finding_carries_translated_description_when_deepl_is_configured(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(cve_correlation, "fetch_epss", lambda *args, **kwargs: None)
 
     context = {
         "technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]
@@ -360,3 +370,31 @@ def test_cve_finding_carries_translated_description_when_deepl_is_configured(mon
     assert findings[0].data["description_pt"] == "Uma vulnerabilidade."
     assert mock_translate.call_args.kwargs["module"] == "cve_correlation"
     assert mock_translate.call_args.kwargs["audit_target"] == "CVE-2021-23017"
+
+
+def test_cve_finding_includes_the_epss_score_when_the_lookup_succeeds(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        with patch("app.modules.cve_correlation.fetch_epss", return_value=0.42):
+            findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings[0].data["epss_score"] == 0.42
+
+
+def test_cve_finding_has_a_none_epss_score_when_the_lookup_fails(monkeypatch):
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "nginx", "version": "1.18.0", "host": "tech.example.com"}]}
+    payload = _nvd_response(_cve("CVE-2021-23017", [NGINX_RANGE_MATCH]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        with patch("app.modules.cve_correlation.fetch_epss", return_value=None):
+            findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings[0].data["epss_score"] is None
