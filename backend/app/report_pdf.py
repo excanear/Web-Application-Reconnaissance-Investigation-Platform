@@ -1,6 +1,6 @@
 # backend/app/report_pdf.py
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
@@ -25,7 +25,7 @@ def render_pdf(data: ReportData, path: str, lang: str) -> None:
     cell_style = styles["BodyText"]
     cell_style.fontSize = 8
 
-    doc = SimpleDocTemplate(path, pagesize=A4)
+    doc = SimpleDocTemplate(path, pagesize=landscape(A4))
     elements = [
         Paragraph(i18n.t("report_pdf_title", lang=lang, scan_id=data.scan_id), styles["Title"]),
         Spacer(1, 12),
