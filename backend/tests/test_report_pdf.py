@@ -55,6 +55,49 @@ def test_renders_in_portuguese_when_requested(tmp_path):
     assert "Confirmada" in text
 
 
+def test_renders_a_pdf_when_cve_text_contains_html_like_markup(tmp_path):
+    path = str(tmp_path / "report.pdf")
+    data = ReportData(
+        scan_id=42, status="complete",
+        cves=[
+            _row(
+                description="Reflected XSS via <script>alert(1)</script>",
+                evidence="Payload: <img src=x onerror=alert(1)>",
+                remediation="Sanitize input.<br>Escape output.",
+            )
+        ],
+        summary={"total_cves": 1, "confirmed_count": 1, "suspected_count": 0, "counts_by_severity": {"CRITICAL": 1}},
+    )
+
+    # Must not raise ValueError: paraparser: syntax error (reportlab treats
+    # Paragraph content as mini-HTML; unescaped markup in CVE text used to crash).
+    render_pdf(data, path, lang="en")
+
+    assert os.path.exists(path)
+    text = _extract_text(path)
+    # The CVE ID column now wraps (finding #3), so it may be broken across
+    # lines by Paragraph -- just confirm the markup-laden text made it in
+    # (escaped, not interpreted) and rendering succeeded.
+    assert "Reflected XSS" in text
+    assert "onerror" in text
+
+
+def test_renders_a_pdf_with_a_very_long_description_without_layout_error(tmp_path):
+    path = str(tmp_path / "report.pdf")
+    long_description = "A" * 2000
+    data = ReportData(
+        scan_id=42, status="complete",
+        cves=[_row(description=long_description)],
+        summary={"total_cves": 1, "confirmed_count": 1, "suspected_count": 0, "counts_by_severity": {"CRITICAL": 1}},
+    )
+
+    # Must not raise reportlab.platypus.doctemplate.LayoutError when a wrapped
+    # cell's content is too tall to fit on a single page.
+    render_pdf(data, path, lang="en")
+
+    assert os.path.exists(path)
+
+
 def test_renders_without_a_technologies_or_cves_section_when_both_are_empty(tmp_path):
     path = str(tmp_path / "report.pdf")
     data = ReportData(

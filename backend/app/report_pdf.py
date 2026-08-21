@@ -1,4 +1,6 @@
 # backend/app/report_pdf.py
+from xml.sax.saxutils import escape
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -94,20 +96,21 @@ def render_pdf(data: ReportData, path: str, lang: str) -> None:
             )
             cve_rows.append(
                 [
-                    row.cve_id,
-                    row.severity,
+                    Paragraph(escape(row.cve_id), cell_style),
+                    Paragraph(escape(row.severity), cell_style),
                     f"{row.cvss_score:.1f}" if row.cvss_score is not None else "-",
                     f"{row.epss_score:.3f}" if row.epss_score is not None else "-",
-                    status_label,
-                    row.technology,
-                    Paragraph(describe_with_marker(row, lang), cell_style),
-                    Paragraph(row.evidence, cell_style),
-                    Paragraph(row.remediation, cell_style),
+                    Paragraph(escape(status_label), cell_style),
+                    Paragraph(escape(row.technology), cell_style),
+                    Paragraph(escape(describe_with_marker(row, lang)), cell_style),
+                    Paragraph(escape(row.evidence), cell_style),
+                    Paragraph(escape(row.remediation), cell_style),
                 ]
             )
         cve_table = Table(
             cve_rows, repeatRows=1,
             colWidths=[2.2 * cm, 1.6 * cm, 1.3 * cm, 1.3 * cm, 1.8 * cm, 2.8 * cm, 4 * cm, 4 * cm, 5 * cm],
+            splitInRow=1,
         )
         cve_table.setStyle(_HEADER_STYLE)
         elements.append(cve_table)
