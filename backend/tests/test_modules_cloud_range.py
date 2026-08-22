@@ -165,18 +165,22 @@ def test_max_workers_greater_than_one_still_resolves_every_host():
     assert cloud_assets == {f"host{i}.example.com" for i in range(6)} | {"example.com"}
 
 
-def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary():
-    # 6 hosts total (sorted: example.com, host0..host4), max_workers=3 ->
-    # two batches of 3. threshold=2 failures trips inside the first
-    # batch (both resolutions in that batch fail) -- this can only
-    # produce the exact expected skipped_hosts count if hosts are
-    # genuinely processed in batches of 3 with the same deterministic
-    # bookkeeping order tech_fingerprint.py already uses, not a plain
-    # per-host loop that happens to ignore max_workers.
+def test_max_workers_batches_resolve_ahead_of_the_deterministic_trip_point():
+    # 6 hosts (sorted: example.com, host0..host4), max_workers=3 -> batch 1
+    # = indices 0,1,2 (example.com, host0.example.com, host1.example.com).
+    # threshold=2 means the deterministic bookkeeping pass trips the
+    # breaker on the 2nd failure (index 1, host0.example.com) and never
+    # looks at index 2's result -- but real batching resolves ALL 3 hosts
+    # in that batch concurrently via ThreadPoolExecutor before bookkeeping
+    # even starts. A purely sequential loop (old code, or max_workers=1)
+    # would break immediately after the 2nd failure and never attempt to
+    # resolve the 3rd host at all. Asserting the resolver was called
+    # exactly 3 times (not 2) is what actually proves batching happened --
+    # the Finding values alone coincide either way for this input.
     with patch(
         "app.modules.cloud_range.socket.gethostbyname",
         side_effect=OSError("unknown host"),
-    ):
+    ) as mock_resolve:
         findings = CloudRangeModule().run(
             "example.com",
             {
@@ -186,13 +190,8 @@ def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary()
             },
         )
 
+    assert mock_resolve.call_count == 3
     tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
     assert len(tripped) == 1
-    # sorted hosts: ["example.com", "host0.example.com", "host1.example.com",
-    #                "host2.example.com", "host3.example.com", "host4.example.com"]
-    # batch 1 = indices 0,1,2 -> failures at index 0 and 1 trip the breaker
-    # (threshold=2) during the deterministic bookkeeping pass over batch 1's
-    # results, at index 1 ("host0.example.com") -- matching what max_workers=1
-    # would produce at that same host-list position.
     assert tripped[0].value == "host0.example.com"
     assert tripped[0].data["skipped_hosts"] == 4
