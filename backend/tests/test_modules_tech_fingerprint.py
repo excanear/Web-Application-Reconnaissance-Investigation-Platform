@@ -323,7 +323,7 @@ def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary()
     with patch(
         "app.modules.tech_fingerprint.requests.get",
         side_effect=requests.RequestException("down"),
-    ):
+    ) as mock_get:
         findings = TechFingerprintModule().run(
             "example.com",
             {
@@ -334,12 +334,21 @@ def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary()
             },
         )
 
-    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
-    assert len(tripped) == 1
     # sorted hosts: ["example.com", "host0.example.com", "host1.example.com",
     #                "host2.example.com", "host3.example.com", "host4.example.com"]
     # batch 1 = indices 0,1,2 -> failures at index 0 and 1 trip the breaker
     # (threshold=2) while processing batch-1 results in order; trip fires
-    # on the host at index 1, matching what max_workers=1 would produce.
-    assert tripped[0].value == "example.com" or tripped[0].value.startswith("host0")
+    # on the host at index 1 (host0.example.com), matching what max_workers=1
+    # would produce -- but real batching resolves all 3 hosts' main requests
+    # concurrently via ThreadPoolExecutor before bookkeeping even starts,
+    # since each failing _fingerprint_host call makes exactly one
+    # requests.get call (path-probe requests only fire on a 200 response).
+    # A purely sequential loop (old code, or max_workers=1) would stop
+    # immediately after the 2nd failure and never attempt the 3rd host's
+    # request at all. Asserting call_count == 3 (not 2) is what actually
+    # proves batching happened.
+    assert mock_get.call_count == 3
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    assert tripped[0].value == "host0.example.com"
     assert tripped[0].data["skipped_hosts"] == 4

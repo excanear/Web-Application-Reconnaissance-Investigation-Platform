@@ -45,6 +45,7 @@ class TechFingerprintModule(ReconModule):
         technologies = context.get("wappalyzer_technologies")
         if technologies is None:
             technologies = wappalyzer.load_technologies()
+        wappalyzer.load_categories()
 
         findings: list[Finding] = []
 

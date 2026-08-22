@@ -74,6 +74,7 @@ def scan(
     max_workers: int = typer.Option(
         1,
         "--max-workers",
+        min=1,
         help="Process up to this many hosts concurrently within tech_fingerprint/cloud_range (default: fully sequential)",
     ),
     scope_include: list[str] = typer.Option(
