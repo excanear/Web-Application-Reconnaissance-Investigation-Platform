@@ -644,22 +644,12 @@ de consultar serviços de terceiros. Módulos ativos exigem
 
 ## Fingerprint de tecnologia
 
-`tech_fingerprint` roda 29 regras contra 5 categorias, cada uma
-combinando um tipo de sinal (`header`, `cookie`, `meta_generator`,
-`html_regex`, `path_probe`) com um regex que extrai a versão quando ela
-está disponível:
-
-| Categoria | Tecnologias detectadas |
-|---|---|
-| Servidor web | nginx, Apache, Microsoft-IIS, Tomcat |
-| CDN / WAF | Cloudflare, Akamai, Varnish, AWS CloudFront, Fastly |
-| Backend | PHP, Java, ASP.NET, Express, Werkzeug/Flask, Ruby on Rails, Laravel, Django |
-| CMS | WordPress, Drupal, Joomla, Shopify |
-| Frontend | Angular, React, Vue.js, Next.js, jQuery, Bootstrap |
-
-O motor é uma tabela de dados (`FINGERPRINT_RULES` em
-`app/modules/tech_fingerprint.py`) — adicionar uma tecnologia nova é
-adicionar uma entrada na tabela, sem tocar no código do motor.
+O `tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
+dataset do [Wappalyzer](https://github.com/enthec/webappanalyzer)
+(milhares de tecnologias, mantido pela comunidade) mais sondas ativas
+específicas do projeto. Veja
+[Atualizando o dataset de fingerprint de tecnologias](#atualizando-o-dataset-de-fingerprint-de-tecnologias)
+acima para saber como atualizar o dataset e suas limitações conhecidas.
 
 Fingerprint de banco de dados fica deliberadamente limitado a sinais
 indiretos (cookies, headers, mensagens de erro já expostas) — detecção

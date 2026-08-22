@@ -645,21 +645,12 @@ just querying third-party services. Active modules require
 
 ## Technology fingerprinting
 
-`tech_fingerprint` runs 29 rules across 5 categories, each combining a
-signal type (`header`, `cookie`, `meta_generator`, `html_regex`,
-`path_probe`) with a regex that extracts the version when it's available:
-
-| Category | Technologies detected |
-|---|---|
-| Web server | nginx, Apache, Microsoft-IIS, Tomcat |
-| CDN / WAF | Cloudflare, Akamai, Varnish, AWS CloudFront, Fastly |
-| Backend | PHP, Java, ASP.NET, Express, Werkzeug/Flask, Ruby on Rails, Laravel, Django |
-| CMS | WordPress, Drupal, Joomla, Shopify |
-| Frontend | Angular, React, Vue.js, Next.js, jQuery, Bootstrap |
-
-The engine is a data table (`FINGERPRINT_RULES` in
-`app/modules/tech_fingerprint.py`) — adding a new technology means adding
-a table entry, without touching the engine's code.
+`tech_fingerprint` detects technologies using a vendored copy of the
+[Wappalyzer](https://github.com/enthec/webappanalyzer) fingerprint
+dataset (thousands of technologies, community-maintained) plus
+project-specific active path probes. See
+[Update the technology fingerprint dataset](#update-the-technology-fingerprint-dataset)
+above for how to refresh the dataset and its known limitations.
 
 Database fingerprinting is deliberately limited to indirect signals
 (cookies, headers, error messages already exposed) — direct detection via
