@@ -125,3 +125,41 @@ def test_records_a_failed_resolution_to_the_audit_log():
 
     assert len(audit.entries) == 1
     assert audit.entries[0]["outcome"] == "error: no dns"
+
+
+def test_max_workers_default_is_fully_sequential_and_unchanged():
+    # Mirrors this file's existing circuit-breaker-trip test (same
+    # subdomain count / threshold / all-failing setup) but asserted with
+    # no max_workers key in context at all.
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname",
+        side_effect=OSError("unknown host"),
+    ):
+        findings = CloudRangeModule().run(
+            "example.com",
+            {
+                "subdomains": {f"host{i}.example.com" for i in range(5)},
+                "circuit_breaker_threshold": 2,
+            },
+        )
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    assert tripped[0].data["skipped_hosts"] == 4
+
+
+def test_max_workers_greater_than_one_still_resolves_every_host():
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname",
+        return_value="52.1.2.3",  # inside the AWS CLOUD_RANGES sample
+    ):
+        findings = CloudRangeModule().run(
+            "example.com",
+            {
+                "subdomains": {f"host{i}.example.com" for i in range(6)},
+                "max_workers": 3,
+            },
+        )
+
+    cloud_assets = {f.value for f in findings if f.type == "cloud_asset"}
+    assert cloud_assets == {f"host{i}.example.com" for i in range(6)} | {"example.com"}
