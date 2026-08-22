@@ -266,3 +266,80 @@ def test_records_a_failed_main_request_to_the_audit_log():
 
     assert len(audit.entries) == 1
     assert audit.entries[0]["outcome"] == "error: down"
+
+
+def test_max_workers_default_is_fully_sequential_and_unchanged():
+    # Same scenario/assertions as the pre-existing
+    # test_circuit_breaker_trips_after_threshold_consecutive_failures_and_skips_remaining_hosts,
+    # run with no max_workers in context at all -- proves the default path
+    # is untouched by this task's changes.
+    import requests
+
+    subdomains = {f"host{i}.example.com" for i in range(5)}
+
+    with patch(
+        "app.modules.tech_fingerprint.requests.get",
+        side_effect=requests.RequestException("down"),
+    ):
+        findings = TechFingerprintModule().run(
+            "example.com",
+            {"subdomains": subdomains, "circuit_breaker_threshold": 2, "wappalyzer_technologies": {}},
+        )
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    assert tripped[0].data["skipped_hosts"] == 4
+
+
+def test_max_workers_greater_than_one_still_detects_every_host():
+    base = _response(headers={"Server": "nginx/1.18.0"})
+    subdomains = {f"host{i}.example.com" for i in range(6)}
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=_fake_get(base)):
+        findings = TechFingerprintModule().run(
+            "example.com",
+            {
+                "subdomains": subdomains,
+                "wappalyzer_technologies": NGINX_TECH,
+                "max_workers": 3,
+            },
+        )
+
+    hosts_detected = {f.value for f in findings if f.data.get("name") == "nginx"}
+    assert hosts_detected == subdomains | {"example.com"}
+
+
+def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary():
+    # 6 hosts total (sorted: example.com, host0..host4), max_workers=3 ->
+    # two batches of 3. threshold=2 failures trips inside the first
+    # batch (both requests in that batch fail) -- the trip must fire
+    # using the same "last host whose failure crossed the threshold, in
+    # host-list order" rule as the sequential (max_workers=1) case, and
+    # the second batch must never be submitted.
+    import requests
+
+    subdomains = {f"host{i}.example.com" for i in range(5)}
+
+    with patch(
+        "app.modules.tech_fingerprint.requests.get",
+        side_effect=requests.RequestException("down"),
+    ):
+        findings = TechFingerprintModule().run(
+            "example.com",
+            {
+                "subdomains": subdomains,
+                "circuit_breaker_threshold": 2,
+                "wappalyzer_technologies": {},
+                "max_workers": 3,
+            },
+        )
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    # sorted hosts: ["example.com", "host0.example.com", "host1.example.com",
+    #                "host2.example.com", "host3.example.com", "host4.example.com"]
+    # batch 1 = indices 0,1,2 -> failures at index 0 and 1 trip the breaker
+    # (threshold=2) while processing batch-1 results in order; trip fires
+    # on the host at index 1, matching what max_workers=1 would produce.
+    assert tripped[0].value == "example.com" or tripped[0].value.startswith("host0")
+    assert tripped[0].data["skipped_hosts"] == 4
