@@ -470,6 +470,7 @@ python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --aut
 | `--name` | não | Nome do projeto (padrão: o próprio alvo) |
 | `--max-requests-per-second` | não | Limita o ritmo de requisições contra o alvo/subdomínios (padrão `5.0`) |
 | `--circuit-breaker-threshold` | não | Falhas seguidas contra um alvo antes de um módulo parar de sondá-lo (padrão `5`) |
+| `--max-workers` | não | Processa até essa quantidade de hosts em paralelo dentro de `tech_fingerprint`/`cloud_range` (padrão `1` — totalmente sequencial, idêntico a qualquer scan anterior a essa flag existir) |
 | `--scope-include` | não | Padrão de domínio ou CIDR explicitamente dentro do escopo (repetível, padrão `<alvo>` e `*.<alvo>`) |
 | `--scope-exclude` | não | Padrão de domínio ou CIDR explicitamente excluído do escopo (repetível) |
 | `--scope-window` | não | Janela de horário permitida em UTC, ex.: `09:00-18:00` (padrão: sempre permitido) |
@@ -485,6 +486,23 @@ repassa o mesmo limite pra flag nativa `-rate-limit` do `httpx`.
 `cve_correlation` respeita o limite geral além do próprio pacing
 específico do NVD. `crtsh` e `whois` fazem só uma requisição por scan,
 então nenhum dos dois se aplica a eles.
+
+`--max-workers` só afeta `tech_fingerprint` e `cloud_range` — os dois
+módulos com um loop por host em Python. O `httpx_probe` já paraleliza
+internamente via o próprio `-rate-limit` do binário externo `httpx`; o
+`cve_correlation` é limitado pelo próprio teto de requisições da API da
+NVD, independente de paralelismo local, então continua sequencial.
+Aumentar `--max-workers` não aumenta `--max-requests-per-second` — só
+permite que essa quantidade de requisições em voo compartilhe o mesmo
+orçamento de ritmo, em vez de uma requisição terminar completamente
+antes da próxima começar, encurtando o tempo de parede em escopos
+grandes sem enviar mais requisições por segundo. No padrão `1`, os
+resultados (ordem dos achados, qual host dispara um trip do circuit
+breaker, a contagem de `skipped_hosts`) são idênticos byte a byte a
+antes dessa flag existir. Com `--max-workers` acima de `1`, essa
+contabilidade continua totalmente determinística — só a ordem das
+entradas do `recon audit` para hosts processados no mesmo lote pode
+variar entre execuções, nunca o conteúdo.
 
 Módulos que sondam um host verificam antes o escopo declarado — um
 host fora do escopo que um módulo tocaria é pulado e registrado como um

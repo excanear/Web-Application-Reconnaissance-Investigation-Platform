@@ -471,6 +471,7 @@ python -m app.cli scan <target> --scope "<authorized scope description>" --autho
 | `--name` | no | Project name (defaults to the target itself) |
 | `--max-requests-per-second` | no | Caps request pace against the target/subdomains (default `5.0`) |
 | `--circuit-breaker-threshold` | no | Consecutive failures against a target before a module stops probing it (default `5`) |
+| `--max-workers` | no | Process up to this many hosts concurrently within `tech_fingerprint`/`cloud_range` (default `1` — fully sequential, identical to every scan before this flag existed) |
 | `--scope-include` | no | Domain pattern or CIDR explicitly in scope (repeatable, defaults to `<target>` and `*.<target>`) |
 | `--scope-exclude` | no | Domain pattern or CIDR explicitly excluded from scope (repeatable) |
 | `--scope-window` | no | Allowed UTC time window, e.g. `09:00-18:00` (default: always allowed) |
@@ -485,6 +486,22 @@ rate through to `httpx`'s own `-rate-limit` flag. `cve_correlation`
 respects the general limit on top of its existing NVD-specific pacing.
 `crtsh` and `whois` make exactly one request per scan, so neither
 applies to them.
+
+`--max-workers` only affects `tech_fingerprint` and `cloud_range` — the
+two modules with a Python-level per-host loop. `httpx_probe` already
+parallelizes internally via the external `httpx` binary's own
+`-rate-limit`; `cve_correlation` is bound by the NVD API's own request
+cap regardless of local parallelism, so it stays sequential. Raising
+`--max-workers` does not raise `--max-requests-per-second` — it lets
+that many in-flight requests share the same paced budget instead of one
+request fully finishing before the next can start, so it shortens
+wall-clock time on large scopes without sending more requests per
+second. At the default of `1`, results (finding order, which host a
+circuit-breaker trip fires on, the `skipped_hosts` count) are
+byte-for-byte identical to before this flag existed. At `--max-workers`
+above `1`, that bookkeeping still stays fully deterministic — only
+`recon audit`'s entry order for hosts processed in the same batch can
+vary between runs, never its content.
 
 Modules that probe a host check the declared scope first — an
 out-of-scope host a module would otherwise touch is skipped and
