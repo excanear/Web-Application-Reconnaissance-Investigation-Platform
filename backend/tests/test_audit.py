@@ -35,3 +35,19 @@ def test_entries_can_be_cleared():
     log.entries.clear()
 
     assert log.entries == []
+
+
+from concurrent.futures import ThreadPoolExecutor
+
+
+def test_record_loses_no_entries_under_concurrent_calls():
+    log = AuditLog()
+
+    def do_record(i):
+        log.record(module="tech_fingerprint", target=f"host{i}.example.com", outcome="200")
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        list(executor.map(do_record, range(200)))
+
+    assert len(log.entries) == 200
+    assert {e["target"] for e in log.entries} == {f"host{i}.example.com" for i in range(200)}
