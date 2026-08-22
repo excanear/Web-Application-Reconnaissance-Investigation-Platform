@@ -2,150 +2,196 @@
 
 # Web Application Reconnaissance &amp; Investigation Platform
 
-English | **[Leia isto em Português](README.pt-BR.md)**
+### Aponte para um domínio. Receba a tecnologia exata, a versão exata, e CVEs reais.
 
-**Point it at a domain. Get back the exact technology, exact version, and real CVEs.**
+Uma CLI ofensiva de reconhecimento que mapeia a superfície de ataque de um
+alvo autorizado — descoberta de subdomínios, fingerprint ativo de
+tecnologias e correlação de vulnerabilidades contra a NVD real — tudo em
+um único processo síncrono, sem servidor, sem fila, sem infraestrutura
+para manter no ar.
 
-An offensive reconnaissance CLI that maps the attack surface of an
-authorized target — subdomain discovery, active technology fingerprinting,
-and vulnerability correlation against the real NVD — all in a single
-synchronous process, no server, no queue, no infrastructure to keep
-running.
+[![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
+[![Testes](https://img.shields.io/badge/testes-243%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
+[![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
-[![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![CLI](https://img.shields.io/badge/interface-CLI-000000?style=flat-square)](#command-reference)
-[![Authorization required](https://img.shields.io/badge/use-authorized%20only-red?style=flat-square)](#authorization-and-responsible-use)
-[![Tests](https://img.shields.io/badge/tests-136%20passing-brightgreen?style=flat-square)](#tests)
+<br>
+
+[Visão geral](#o-que-a-ferramenta-faz) ·
+[Tutorial](#tutorial-do-zero-ao-primeiro-scan) ·
+[Comandos](#referência-de-comandos) ·
+[Arquitetura](#como-funciona-por-dentro) ·
+[Roadmap](#roadmap)
 
 </div>
 
----
+<br>
 
-## Table of contents
-
-- [What it does](#what-it-does)
-- [Tutorial: from zero to your first scan](#tutorial-from-zero-to-your-first-scan)
-- [Common problems](#common-problems)
-- [Command reference](#command-reference)
-- [Authorization and responsible use](#authorization-and-responsible-use)
-- [How it works internally](#how-it-works-internally)
-- [Module catalog](#module-catalog)
-- [Technology fingerprinting](#technology-fingerprinting)
-- [CVE correlation](#cve-correlation)
-- [Configuration](#configuration)
-- [Data and persistence](#data-and-persistence)
-- [Audit trail](#audit-trail)
-- [Tests](#tests)
-- [Known limitations](#known-limitations)
-- [Roadmap](#roadmap)
+> [!IMPORTANT]
+> Esta é uma ferramenta ofensiva. Ela envia requisições reais contra
+> qualquer alvo que você fornecer — descoberta de subdomínios, sondagem
+> HTTP direta, resolução DNS. **Use apenas contra sistemas que você
+> possui ou tem autorização explícita e documentada para testar** (um
+> pentest contratado, um bug bounty com escopo definido, seus próprios
+> sistemas, ou domínios públicos de teste como `example.com`).
 
 ---
 
-## What it does
+## Sumário
 
-You give it a domain. The tool:
-
-1. **Discovers** subdomains (certificate transparency, passive enumeration,
-   wordlist permutation).
-2. **Actively probes** the target and every subdomain against a
-   fingerprinting engine with dozens of rules — web server, CDN/WAF,
-   backend language and framework, CMS, frontend framework — extracting
-   the **exact version** whenever it leaks through headers, cookies,
-   `generator` tags, or exposed changelog/manifest files.
-3. **Correlates** each technology with a known version against the real
-   NVD API, filtering by CPE range — not loose text search, but structural
-   verification that the specific version actually falls inside that
-   CVE's vulnerable range.
-4. **Prints a report** to the terminal, grouped by Technologies, CVEs
-   (sorted by descending CVSS, severity color-coded), and other
-   findings — and stores everything in a local SQLite database so you can
-   revisit it later.
-
-No frontend, no HTTP API, no Celery, no Redis, no Docker. One command,
-one process, one report.
+| | | |
+|---|---|---|
+| [O que a ferramenta faz](#o-que-a-ferramenta-faz) | [Tutorial: do zero ao primeiro scan](#tutorial-do-zero-ao-primeiro-scan) | [Problemas comuns](#problemas-comuns) |
+| [Referência de comandos](#referência-de-comandos) | [Autorização e uso responsável](#autorização-e-uso-responsável) | [Como funciona por dentro](#como-funciona-por-dentro) |
+| [Catálogo de módulos](#catálogo-de-módulos) | [Fingerprint de tecnologias](#fingerprint-de-tecnologias) | [Correlação de CVE](#correlação-de-cve) |
+| [Configuração](#configuração) | [Dados e persistência](#dados-e-persistência) | [Trilha de auditoria](#trilha-de-auditoria) |
+| [Testes](#testes) | [Limitações conhecidas](#limitações-conhecidas) | [Roadmap](#roadmap) |
 
 ---
 
-## Tutorial: from zero to your first scan
+## O que a ferramenta faz
 
-This tutorial assumes you've **never run the tool before**. Follow it in
-order — each step has a way to confirm it worked before moving to the
-next. If something doesn't match what's described, skip straight to
-[Common problems](#common-problems).
+Você fornece um domínio. A ferramenta:
 
-Pick your platform: [Windows (PowerShell)](#step-0--open-the-right-terminal)
-is the most detailed since it's where most people get stuck; macOS/Linux
-follows in each step.
+**1. Descobre** subdomínios — certificate transparency, enumeração
+passiva agregada, permutação de wordlist sobre o que já foi encontrado.
 
-### Step 0 — Open the right terminal
+**2. Sonda ativamente** o alvo e cada subdomínio contra um motor de
+fingerprint orientado por dados — mais de **7.500 tecnologias** via um
+dataset vendorizado do Wappalyzer — extraindo a **versão exata** sempre
+que ela vaza por headers, cookies, tags `generator` ou arquivos de
+changelog/manifest expostos.
 
-**Windows:** open **PowerShell** (not "Command Prompt"/`cmd`). Start menu
-→ type `PowerShell` → Enter.
+**3. Correlaciona** cada tecnologia com versão conhecida contra a API
+real da NVD, filtrando por faixa de CPE — não é busca textual solta, é
+verificação estrutural de que aquela versão específica realmente cai
+dentro da faixa vulnerável da CVE.
 
-**macOS/Linux:** open your regular Terminal.
+**4. Valida ativamente** um subconjunto das CVEs correlacionadas via
+templates comunitários do `nuclei`, promovendo o status de `suspected`
+para `confirmed` quando a exploração é reproduzida de forma segura.
 
-### Step 1 — Confirm Python is installed (version 3.13 or newer)
+**5. Imprime um relatório** no terminal, agrupado por Tecnologias, CVEs
+(ordenadas por CVSS decrescente, severidade colorida) e outros achados —
+e grava tudo em um banco SQLite local para você revisitar depois.
+
+Sem frontend, sem API HTTP, sem Celery, sem Redis, sem Docker.
+**Um comando, um processo, um relatório.**
+
+```mermaid
+flowchart LR
+    A["`**recon scan**
+    domínio + escopo`"] --> B{"`Descoberta
+    _run_order 10_`"}
+    B --> C["crt.sh"] & D["subfinder"] & E["permutação
+    de wordlist"]
+    C & D & E --> F{"`Análise ativa
+    _run_order 50_`"}
+    F --> G["httpx"] & H["`**tech_fingerprint**
+    +7.500 tecnologias`"] & I["cloud_range"] & J["whois"]
+    G & H & I & J --> K{"`Correlação
+    _run_order 90_`"}
+    K --> L["`**cve_correlation**
+    NVD real, por CPE`"]
+    L --> M{"`Validação
+    _run_order 95_`"}
+    M --> N["`**nuclei_validation**
+    suspected → confirmed`"]
+    N --> O[("`SQLite
+    local`")]
+    O --> P["`Relatório
+    terminal · CSV · PDF`"]
+
+    style A fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style H fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style L fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style N fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style O fill:#2b2b2b,stroke:#000,color:#fff
+    style P fill:#2b2b2b,stroke:#000,color:#fff
+```
+
+---
+
+## Tutorial: do zero ao primeiro scan
+
+Este tutorial assume que você **nunca rodou a ferramenta antes**. Siga
+na ordem — cada passo tem uma forma de confirmar que funcionou antes de
+seguir pro próximo. Se algo não bater com o descrito, vá direto para
+[Problemas comuns](#problemas-comuns).
+
+Escolha sua plataforma: [Windows (PowerShell)](#passo-0--abra-o-terminal-certo)
+é o mais detalhado, já que é onde mais gente trava; macOS/Linux acompanha
+em cada passo.
+
+### Passo 0 — Abra o terminal certo
+
+**Windows:** abra o **PowerShell** (não o "Prompt de Comando"/`cmd`).
+Menu Iniciar → digite `PowerShell` → Enter.
+
+**macOS/Linux:** abra o Terminal normal.
+
+### Passo 1 — Confirme que o Python está instalado (versão 3.13 ou mais recente)
 
 ```powershell
 python --version
 ```
 
-Expected result: something like `Python 3.13.12`. If you see
-**`'python' is not recognized as an internal or external command`**,
-try:
+Resultado esperado: algo como `Python 3.13.12`. Se aparecer
+**`'python' não é reconhecido como um comando`**, tente:
 
 ```powershell
 py --version
 ```
 
-If neither works, you don't have Python installed — download it from
-[python.org/downloads](https://www.python.org/downloads/) (check the
-**"Add Python to PATH"** box during install — this is the step most
-people forget) and repeat this step.
+Se nenhum dos dois funcionar, você não tem Python instalado — baixe em
+[python.org/downloads](https://www.python.org/downloads/) (marque a
+caixa **"Add Python to PATH"** durante a instalação — este é o passo que
+mais gente esquece) e repita este passo.
 
-> From here on, this tutorial uses `python`. If only `py` worked on your
-> machine, swap `python` for `py` in every command below.
+> Daqui em diante este tutorial usa `python`. Se só `py` funcionou na sua
+> máquina, troque `python` por `py` em todos os comandos abaixo.
 
-### Step 2 — Download the code
+### Passo 2 — Baixe o código
 
 ```powershell
 git clone https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform.git
 ```
 
-If you don't have `git` installed, download the ZIP directly via the
-green **"Code" → "Download ZIP"** button on the repository's GitHub page,
-and extract the folder.
+Se você não tem `git` instalado, baixe o ZIP direto pelo botão verde
+**"Code" → "Download ZIP"** na página do repositório no GitHub, e
+extraia a pasta.
 
-### Step 3 — Enter the right folder
+### Passo 3 — Entre na pasta certa
 
-This is the step where **almost everyone gets stuck**: the tool's
-commands only work from inside the `backend/` folder, not from the
-project root.
+Este é o passo onde **quase todo mundo trava**: os comandos da
+ferramenta só funcionam de dentro da pasta `backend/`, não da raiz do
+projeto.
 
 ```powershell
 cd Web-Application-Reconnaissance-Investigation-Platform\backend
 ```
 
-**Check you're in the right place before continuing:**
+**Confirme que está no lugar certo antes de continuar:**
 
 ```powershell
 dir
 ```
 
-You need to see `app`, `tests`, `requirements.txt` in the listing. If you
-don't, you're in the wrong folder — adjust the `cd`.
+Você precisa ver `app`, `tests`, `requirements.txt` na listagem. Se não
+aparecer, você está na pasta errada — ajuste o `cd`.
 
-*(macOS/Linux: same idea, just swap `dir` for `ls` and `\` for `/` in the
-path.)*
+*(macOS/Linux: mesma ideia, só troque `dir` por `ls` e `\` por `/` no
+caminho.)*
 
-### Step 4 — Create a virtual environment and install dependencies
+### Passo 4 — Crie um ambiente virtual e instale as dependências
 
-A virtual environment (`venv`) isolates this tool's packages from the
-rest of your system — it avoids version conflicts and, on recent
-Linux/macOS, it's **required** (the system Python refuses to install
-packages directly, see
-[`externally-managed-environment`](#error-externally-managed-environment)
-in Common problems if you skip this step and hit that error).
+Um ambiente virtual (`venv`) isola os pacotes desta ferramenta do resto
+do seu sistema — evita conflito de versões e, em Linux/macOS recentes, é
+**obrigatório** (o Python do sistema recusa instalar pacotes
+diretamente; veja
+[`externally-managed-environment`](#erro-externally-managed-environment)
+em Problemas comuns se você pular este passo e cair nesse erro).
 
 ```powershell
 # Windows (PowerShell)
@@ -161,30 +207,31 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**How to tell the virtual environment is active:** the start of your
-terminal line now shows `(venv)` before the rest of the prompt. While
-`(venv)` is there, `python` and `pip` point at the isolated environment —
-that's how it should look every time you use the tool (if you close the
-terminal, just repeat the activation step:
-`.\venv\Scripts\Activate.ps1` or `source venv/bin/activate` — no need to
-recreate the venv).
+**Como saber que o ambiente virtual está ativo:** o início da linha do
+terminal passa a mostrar `(venv)` antes do resto do prompt. Enquanto
+`(venv)` estiver lá, `python` e `pip` apontam para o ambiente isolado —
+é assim que deve aparecer toda vez que você usar a ferramenta (se fechar
+o terminal, é só repetir o passo de ativação:
+`.\venv\Scripts\Activate.ps1` ou `source venv/bin/activate` — não
+precisa recriar o venv).
 
-This downloads and installs: `sqlalchemy`, `typer`, `rich`, `requests`,
-`python-whois`, `python-dotenv`, `pytest`. Takes under a minute.
+Isso baixa e instala: `sqlalchemy`, `typer`, `rich`, `requests`,
+`python-whois`, `python-dotenv`, `reportlab`, `pytest`. Leva menos de um
+minuto.
 
-**How to tell it worked:** the last line in the terminal should look like
-`Successfully installed ...` listing the packages.
+**Como saber que funcionou:** a última linha no terminal deve ser algo
+como `Successfully installed ...` listando os pacotes.
 
-### Step 5 — Run your first scan
+### Passo 5 — Rode seu primeiro scan
 
-Now for the tool's main command. We'll use `example.com`, IANA's reserved
-example domain, safe for anyone to test against:
+Agora o comando principal da ferramenta. Vamos usar `example.com`, o
+domínio de exemplo reservado pela IANA, seguro para qualquer um testar:
 
 ```powershell
-python -m app.cli scan example.com --scope "my first test" --authorized --confirm-active
+python -m app.cli scan example.com --scope "meu primeiro teste" --authorized --confirm-active
 ```
 
-**What to expect on screen**, in order:
+**O que esperar na tela**, em ordem:
 
 ```text
 Running crtsh...
@@ -197,30 +244,30 @@ Running whois...
 Running cve_correlation...
 ```
 
-This takes 10 to 40 seconds (the tool is genuinely making network
-requests — it hasn't frozen, that's `cve_correlation` respecting the NVD
-API's rate limit). At the end the report appears in tables.
+Isso leva de 10 a 40 segundos (a ferramenta está fazendo requisições de
+rede de verdade — não travou, isso é o `cve_correlation` respeitando o
+limite de taxa da API da NVD). No fim, o relatório aparece em tabelas.
 
-**If you got this far and saw the final report — it worked.**
-Congratulations, the tool is installed and operating.
+**Se você chegou até aqui e viu o relatório final — funcionou.**
+Parabéns, a ferramenta está instalada e operando.
 
-### Step 6 — Run against your own target
+### Passo 6 — Rode contra o seu próprio alvo
 
-Swap `example.com` for the domain you're authorized to test, and
-`"my first test"` for a real scope description:
+Troque `example.com` pelo domínio que você está autorizado a testar, e
+`"meu primeiro teste"` por uma descrição de escopo real:
 
 ```powershell
-python -m app.cli scan yourdomain.com --scope "authorized pentest - contract XYZ" --authorized --confirm-active
+python -m app.cli scan seudominio.com --scope "pentest autorizado - contrato XYZ" --authorized --confirm-active
 ```
 
-Then, see everything you've already run:
+Depois, veja tudo que você já rodou:
 
 ```powershell
 python -m app.cli history
 ```
 
-And reprint the report for a specific scan (swap `1` for the number in
-the `ID` column from `history`):
+E reimprima o relatório de um scan específico (troque `1` pelo número
+da coluna `ID` do `history`):
 
 ```powershell
 python -m app.cli report 1
@@ -228,62 +275,85 @@ python -m app.cli report 1
 
 ---
 
-## Common problems
+## Problemas comuns
 
-### `ModuleNotFoundError: No module named 'app'`
+<details>
+<summary><strong><code>ModuleNotFoundError: No module named 'app'</code></strong></summary>
+<br>
 
-You ran the command from outside the `backend/` folder. Go back to
-[Step 3](#step-3--enter-the-right-folder): run `cd backend` (adjust the
-path to where you are) and confirm with `dir`/`ls` that `app`, `tests`,
-`requirements.txt` show up before trying again.
+Você rodou o comando de fora da pasta `backend/`. Volte ao
+[Passo 3](#passo-3--entre-na-pasta-certa): rode `cd backend` (ajuste o
+caminho pra onde você está) e confirme com `dir`/`ls` que `app`,
+`tests`, `requirements.txt` aparecem antes de tentar de novo.
 
-### `'python' is not recognized as a command`
+</details>
 
-Two possible causes:
-1. Python isn't installed — install it from
-   [python.org/downloads](https://www.python.org/downloads/), checking
+<details>
+<summary><strong><code>'python' não é reconhecido como um comando</code></strong></summary>
+<br>
+
+Duas causas possíveis:
+1. Python não está instalado — instale em
+   [python.org/downloads](https://www.python.org/downloads/), marcando
    **"Add Python to PATH"**.
-2. Python is installed but only responds to `py` — swap `python` for
-   `py` in every command.
+2. Python está instalado mas só responde a `py` — troque `python` por
+   `py` em todos os comandos.
 
-### PowerShell refuses to run a `.ps1` script
+</details>
 
-If you try to run `.\scripts\install.ps1` (the optional script for the
-`subfinder`/`httpx` modules, see
-[Command reference](#install-subfinder-and-httpx-optional)) and see:
+<details>
+<summary><strong>PowerShell se recusa a rodar um script <code>.ps1</code></strong></summary>
+<br>
+
+Se você tentar rodar `.\scripts\install.ps1` (o script opcional dos
+módulos `subfinder`/`httpx`, veja
+[Referência de comandos](#instalar-subfinder-e-httpx-opcional)) e vir:
 
 ```text
-cannot be loaded because running scripts is disabled on this system
+não pode ser carregado porque a execução de scripts foi desabilitada neste sistema
 ```
 
-Run this once (allows scripts downloaded just for your user, doesn't
-change anything else on the system):
+Rode isto uma vez (permite scripts baixados só pro seu usuário, não muda
+mais nada no sistema):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
-Confirm with `Y` when prompted, and try running the script again.
+Confirme com `S` quando perguntado, e tente rodar o script de novo.
 
-### Error saying `--authorized` or `--confirm-active` is missing
+</details>
 
-**This isn't a bug — it's the tool's safety gate working as intended.**
-It refuses to create a scan without these two explicit confirmations
-(see [Authorization and responsible use](#authorization-and-responsible-use)).
-Add both flags at the end of the command:
+<details>
+<summary><strong>Erro dizendo que <code>--authorized</code> ou <code>--confirm-active</code> está faltando</strong></summary>
+<br>
+
+**Isso não é um bug — é a trava de segurança da ferramenta funcionando
+como deveria.** Ela recusa criar um scan sem essas duas confirmações
+explícitas (veja [Autorização e uso responsável](#autorização-e-uso-responsável)).
+Adicione as duas flags no fim do comando:
 
 ```powershell
-python -m app.cli scan example.com --scope "test" --authorized --confirm-active
+python -m app.cli scan example.com --scope "teste" --authorized --confirm-active
 ```
 
-### The command looks frozen, prints nothing for a while
+</details>
 
-Normal for the first 10-40 seconds — the tool really is making live
-network requests (DNS, HTTP, NVD queries). If it goes past about 2
-minutes with no new line, it might be a target with many subdomains or a
-slow network; wait a bit longer before interrupting with `Ctrl+C`.
+<details>
+<summary><strong>O comando parece travado, não imprime nada por um tempo</strong></summary>
+<br>
 
-### `error: externally-managed-environment`
+Normal nos primeiros 10-40 segundos — a ferramenta está mesmo fazendo
+requisições de rede ao vivo (DNS, HTTP, consultas à NVD). Se passar de
+uns 2 minutos sem nenhuma linha nova, pode ser um alvo com muitos
+subdomínios ou rede lenta; espere mais um pouco antes de interromper com
+`Ctrl+C`.
+
+</details>
+
+<details>
+<summary><strong>Erro <code>externally-managed-environment</code></strong></summary>
+<br>
 
 ```text
 error: externally-managed-environment
@@ -294,14 +364,14 @@ error: externally-managed-environment
     install...
 ```
 
-This happens when you try `pip install` **outside** of a virtual
-environment, on a Python installed by the system's package manager
-(common on recent Ubuntu/Debian and on Python installed via Homebrew on
-macOS). Python refuses to install packages directly on the system so it
-doesn't break other tools that depend on it.
+Isso acontece quando você tenta `pip install` **fora** de um ambiente
+virtual, num Python instalado pelo gerenciador de pacotes do sistema
+(comum em Ubuntu/Debian recentes e em Python instalado via Homebrew no
+macOS). O Python recusa instalar pacotes diretamente no sistema pra não
+quebrar outras ferramentas que dependem dele.
 
-**The fix is [Step 4](#step-4--create-a-virtual-environment-and-install-dependencies):**
-create and activate a virtual environment before running `pip install`:
+**A correção é o [Passo 4](#passo-4--crie-um-ambiente-virtual-e-instale-as-dependências):**
+crie e ative um ambiente virtual antes de rodar `pip install`:
 
 ```bash
 python3 -m venv venv
@@ -309,269 +379,293 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Confirm `(venv)` appeared at the start of the terminal line before
-installing — that's what indicates the virtual environment is active and
-`pip install` will stop complaining.
+Confirme que `(venv)` apareceu no início da linha do terminal antes de
+instalar — é isso que indica que o ambiente virtual está ativo e o
+`pip install` vai parar de reclamar.
 
-> There's a way to force the install without a virtual environment
-> (`pip install --break-system-packages -r requirements.txt`), but it's
-> named that way for a reason — it can break other Python tools on your
-> system. Use the virtual environment; it takes 10 extra seconds and
-> avoids that risk.
+> Existe uma forma de forçar a instalação sem ambiente virtual
+> (`pip install --break-system-packages -r requirements.txt`), mas ela
+> tem esse nome por um motivo — pode quebrar outras ferramentas Python
+> no seu sistema. Use o ambiente virtual; leva 10 segundos a mais e
+> evita esse risco.
 
-### Permission error installing dependencies
+</details>
 
-If `pip install` fails on permissions even inside an activated virtual
-environment (rare, but happens if the `venv` itself was created in a
-folder without write permission), delete the `venv` folder and recreate
-it somewhere your user has full permission — for example, inside your
-home folder (`Documents`, `home`), not in system folders.
+<details>
+<summary><strong>Erro de permissão ao instalar dependências</strong></summary>
+<br>
 
-### `'pip' is not recognized as a command`
+Se o `pip install` falhar por permissão mesmo dentro de um ambiente
+virtual ativado (raro, mas acontece se o próprio `venv` foi criado numa
+pasta sem permissão de escrita), apague a pasta `venv` e recrie em algum
+lugar onde seu usuário tem permissão total — por exemplo, dentro da sua
+pasta pessoal (`Documentos`, `home`), não em pastas do sistema.
 
-With the virtual environment activated (step 4), this shouldn't happen.
-If it does anyway, swap `pip install` for `python -m pip install` (or
-`python3 -m pip install` on macOS/Linux).
+</details>
 
-### `module_error` for `subfinder` or `httpx_probe` in the report
+<details>
+<summary><strong><code>'pip' não é reconhecido como um comando</code></strong></summary>
+<br>
 
-Expected if you haven't installed the external Go tools — they're
-optional. The rest of the scan keeps working normally (`crtsh`, `whois`,
-`tech_fingerprint`, `cve_correlation` are pure Python, they don't depend
-on them). If you want to install them anyway, see
-[Command reference](#install-subfinder-and-httpx-optional).
+Com o ambiente virtual ativado (passo 4), isso não deveria acontecer. Se
+acontecer mesmo assim, troque `pip install` por `python -m pip install`
+(ou `python3 -m pip install` no macOS/Linux).
 
-### `sqlite3.OperationalError: database is locked` or an error deleting `dev.db`
+</details>
 
-Another instance of the tool is still running (or hung) and holding the
-`dev.db` file. Close any terminal where the tool is running and try
-again. On Windows, if it persists, restart the terminal.
+<details>
+<summary><strong><code>module_error</code> para <code>subfinder</code> ou <code>httpx_probe</code> no relatório</strong></summary>
+<br>
 
-### Nothing here fixed it
+Esperado se você não instalou as ferramentas Go externas — elas são
+opcionais. O resto do scan continua funcionando normalmente (`crtsh`,
+`whois`, `tech_fingerprint`, `cve_correlation` são Python puro, não
+dependem delas). Se quiser instalá-las mesmo assim, veja
+[Referência de comandos](#instalar-subfinder-e-httpx-opcional).
 
-Open an [issue on the repository](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues)
-with: the exact command you ran, the full error message, and the output
-of `python --version`.
+</details>
+
+<details>
+<summary><strong><code>sqlite3.OperationalError: database is locked</code> ou erro ao apagar o <code>dev.db</code></strong></summary>
+<br>
+
+Outra instância da ferramenta ainda está rodando (ou travada) segurando
+o arquivo `dev.db`. Feche qualquer terminal onde a ferramenta esteja
+rodando e tente de novo. No Windows, se persistir, reinicie o terminal.
+
+</details>
+
+<details>
+<summary><strong>Nada disso resolveu</strong></summary>
+<br>
+
+Abra uma [issue no repositório](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues)
+com: o comando exato que você rodou, a mensagem de erro completa, e o
+resultado de `python --version`.
+
+</details>
 
 ---
 
-## Command reference
+## Referência de comandos
 
-### Install `subfinder` and `httpx` (optional)
+### Instalar `subfinder` e `httpx` (opcional)
 
-External Go tools, used by the modules of the same name. Require
-[Go](https://go.dev/dl/) installed. Without them, those two specific
-modules record `module_error` and the rest of the scan continues
-normally — installing them isn't required to use the tool.
+Ferramentas Go externas, usadas pelos módulos de mesmo nome. Exigem
+[Go](https://go.dev/dl/) instalado. Sem elas, esses dois módulos
+específicos registram `module_error` e o resto do scan continua
+normalmente — instalá-las não é obrigatório para usar a ferramenta.
 
 ```powershell
-# Windows (from inside backend/)
+# Windows (de dentro de backend/)
 .\scripts\install.ps1
 ```
 
 ```bash
-# Linux/macOS (from inside backend/)
+# Linux/macOS (de dentro de backend/)
 ./scripts/install.sh
 ```
 
-### Install `nuclei` (optional, needed for CVE validation)
+### Instalar `nuclei` (opcional, necessário para validação de CVE)
 
-`nuclei_validation` actively confirms a subset of `suspected` CVE findings
-by running community-maintained `nuclei` templates matched by CVE ID
-against the target. Without `nuclei` installed, this module logs a single
-`module_error` finding and every CVE finding stays `suspected` — the rest
-of the scan is unaffected.
+`nuclei_validation` confirma ativamente um subconjunto dos achados de
+CVE `suspected` rodando templates comunitários do `nuclei` casados por
+ID de CVE contra o alvo. Sem o `nuclei` instalado, esse módulo registra
+um único achado `module_error` e toda CVE fica `suspected` — o resto do
+scan não é afetado.
 
-1. Install `nuclei`: https://github.com/projectdiscovery/nuclei#install-nuclei
-2. Update its template library (required — the tool never vendors
-   templates itself): `nuclei -update-templates`
-3. Re-run `nuclei -update-templates` periodically to pick up templates for
-   newly disclosed CVEs.
+1. Instale o `nuclei`: https://github.com/projectdiscovery/nuclei#install-nuclei
+2. Atualize sua biblioteca de templates (obrigatório — a ferramenta
+   nunca vendoriza templates): `nuclei -update-templates`
+3. Rode `nuclei -update-templates` periodicamente para pegar templates
+   de CVEs recém-divulgadas.
 
-Every `nuclei` invocation excludes `dos`, `fuzz`, and `intrusive`-tagged
-templates unconditionally — this is a hard-coded safety boundary, not a
-setting.
+Toda invocação do `nuclei` exclui templates com tag `dos`, `fuzz` e
+`intrusive` incondicionalmente — é um limite de segurança fixo no
+código, não uma configuração.
 
-### Update the technology fingerprint dataset
+### Atualizar o dataset de fingerprint de tecnologias
 
-`tech_fingerprint` detects technologies using a vendored copy of the
-[Wappalyzer](https://github.com/enthec/webappanalyzer) fingerprint
-dataset (thousands of technologies, community-maintained fork of the
-original Wappalyzer project) plus a small set of project-specific
-active path probes (currently just WordPress's `/CHANGELOG.txt`, for
-version precision beyond what a passive check offers).
+`tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
+dataset do [Wappalyzer](https://github.com/enthec/webappanalyzer)
+(milhares de tecnologias, fork mantido pela comunidade do projeto
+Wappalyzer original) mais um pequeno conjunto de sondas ativas próprias
+do projeto (hoje só o `/CHANGELOG.txt` do WordPress, pra precisão de
+versão além do que uma checagem passiva oferece).
 
-The vendored dataset (`backend/app/data/technologies.json`,
-`backend/app/data/categories.json`) ships in this repo but goes stale
-over time. Refresh it with:
+O dataset vendorizado (`backend/app/data/technologies.json`,
+`backend/app/data/categories.json`) vem junto com o repositório mas
+fica desatualizado com o tempo. Atualize com:
 
 ```
 recon update-fingerprints
 ```
 
-This is a local maintenance operation — no target is touched, no
-`--authorized`/`--confirm-active` needed, the same posture as `nuclei
--update-templates`. A network failure leaves the existing vendored
-files untouched.
+É uma operação de manutenção local — não toca em nenhum alvo, não
+precisa de `--authorized`/`--confirm-active`, mesma postura do `nuclei
+-update-templates`. Uma falha de rede deixa os arquivos vendorizados
+existentes intocados.
 
-**Known limitations:**
-- Only technologies detectable from a single HTTP response
-  (headers/cookies/meta tags/HTML body/`<script src>` URLs) are
-  supported. Wappalyzer entries that only offer `js` (global JavaScript
-  variable), `dom` (element selector), or `css` (computed style) checks
-  require a real rendered page and are skipped entirely — this tool
-  never runs a browser. This means some runtime-only signals (part of
-  the Next.js App Router detection gap, for instance) still aren't
-  covered.
-- Newly-detected technologies whose display name doesn't match their
-  CPE product name in the NVD (used by `cve_correlation`) won't
-  correlate a CVE finding yet — this is a known, non-breaking gap, not
-  a bug.
+> [!NOTE]
+> **Limitações conhecidas:** só tecnologias detectáveis a partir de uma
+> única resposta HTTP (headers/cookies/meta tags/corpo HTML/URLs de
+> `<script src>`) são suportadas. Entradas do Wappalyzer que só oferecem
+> checagens `js` (variável JavaScript global), `dom` (seletor de
+> elemento) ou `css` (estilo computado) exigem uma página realmente
+> renderizada e são ignoradas por completo — esta ferramenta nunca roda
+> um navegador. Tecnologias recém-detectadas cujo nome de exibição não
+> bate com o nome de produto no CPE da NVD ainda não correlacionam
+> CVE — gap conhecido, não é bug.
 
-Wappalyzer's fingerprint data is licensed CC BY-SA 4.0 by its
-contributors; the vendored copy in this repo is a direct, unmodified
-mirror.
+Os dados do Wappalyzer têm licença CC BY-SA 4.0 dos seus contribuidores;
+a cópia vendorizada neste repositório é um espelho direto, sem
+modificações.
 
-### Set up an NVD API key (optional, recommended)
+### Configurar uma chave de API da NVD (opcional, recomendado)
 
-Without a key, the NVD query limit is 5 requests every 30 seconds. With a
-free key, it goes up to 50/30s — scans with many technologies get much
-faster.
+Sem uma chave, o limite de consulta à NVD é de 5 requisições a cada 30
+segundos. Com uma chave gratuita, sobe para 50/30s — scans com muitas
+tecnologias ficam bem mais rápidos.
 
 ```powershell
 copy .env.example .env
 ```
 
-Open `.env` in a text editor and fill in `NVD_API_KEY=` with a free key
-obtained at
+Abra o `.env` num editor de texto e preencha `NVD_API_KEY=` com uma
+chave gratuita obtida em
 [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key).
-`.env` is never committed to git (already covered by `.gitignore`).
+O `.env` nunca é commitado no git (já coberto pelo `.gitignore`).
 
-### Output language
+### Idioma de saída
 
-By default the CLI prints everything in English. For Portuguese output,
-use `--lang pt` **before** the command name:
-
-```bash
-python -m app.cli --lang pt scan <target> --scope "<authorized scope description>" --authorized --confirm-active
-```
-
-### Run a scan
+Por padrão a CLI imprime tudo em inglês. Para saída em português, use
+`--lang pt` **antes** do nome do comando:
 
 ```bash
-python -m app.cli scan <target> --scope "<authorized scope description>" --authorized --confirm-active
+python -m app.cli --lang pt scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
 ```
 
-| Flag | Required | What it does |
+### Rodar um scan
+
+```bash
+python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
+```
+
+| Flag | Obrigatória | O que faz |
 |---|---|---|
-| `<target>` (positional argument) | yes | Domain to map |
-| `--scope` | yes | Text description of the authorized scope — saved to the project record |
-| `--authorized` | yes | Explicit confirmation that you're authorized to test the target |
-| `--confirm-active` | yes (if active modules are registered) | Confirmation that modules probing the target directly may run |
-| `--name` | no | Project name (defaults to the target itself) |
-| `--max-requests-per-second` | no | Caps request pace against the target/subdomains (default `5.0`) |
-| `--circuit-breaker-threshold` | no | Consecutive failures against a target before a module stops probing it (default `5`) |
-| `--max-workers` | no | Process up to this many hosts concurrently within `tech_fingerprint`/`cloud_range` (default `1` — fully sequential, identical to every scan before this flag existed) |
-| `--scope-include` | no | Domain pattern or CIDR explicitly in scope (repeatable, defaults to `<target>` and `*.<target>`) |
-| `--scope-exclude` | no | Domain pattern or CIDR explicitly excluded from scope (repeatable) |
-| `--scope-window` | no | Allowed UTC time window, e.g. `09:00-18:00` (default: always allowed) |
+| `<alvo>` (argumento posicional) | sim | Domínio a mapear |
+| `--scope` | sim | Descrição textual do escopo autorizado — salva no registro do projeto |
+| `--authorized` | sim | Confirmação explícita de que você está autorizado a testar o alvo |
+| `--confirm-active` | sim (se houver módulos ativos registrados) | Confirmação de que módulos que sondam o alvo diretamente podem rodar |
+| `--name` | não | Nome do projeto (padrão: o próprio alvo) |
+| `--max-requests-per-second` | não | Limita o ritmo de requisições contra o alvo/subdomínios (padrão `5.0`) |
+| `--circuit-breaker-threshold` | não | Falhas consecutivas contra um alvo antes de um módulo parar de sondá-lo (padrão `5`) |
+| `--max-workers` | não | Processa até essa quantidade de hosts em paralelo dentro de `tech_fingerprint`/`cloud_range` (padrão `1` — totalmente sequencial, idêntico a qualquer scan anterior a essa flag) |
+| `--scope-include` | não | Padrão de domínio ou CIDR explicitamente dentro do escopo (repetível, padrão `<alvo>` e `*.<alvo>`) |
+| `--scope-exclude` | não | Padrão de domínio ou CIDR explicitamente excluído (repetível) |
+| `--scope-window` | não | Janela de horário UTC permitida, ex. `09:00-18:00` (padrão: sempre permitido) |
 
-Omitting any required flag stops execution **before** any request hits
-the target, with an error message explaining what's missing.
+Omitir qualquer flag obrigatória interrompe a execução **antes** de
+qualquer requisição atingir o alvo, com uma mensagem de erro explicando
+o que falta.
 
-`tech_fingerprint` and `cloud_range` pace each host and stop probing a
-target that fails repeatedly, recording a `circuit_breaker_tripped`
-finding instead of continuing blindly. `httpx_probe` passes the same
-rate through to `httpx`'s own `-rate-limit` flag. `cve_correlation`
-respects the general limit on top of its existing NVD-specific pacing.
-`crtsh` and `whois` make exactly one request per scan, so neither
-applies to them.
+`tech_fingerprint` e `cloud_range` pacificam cada host e param de sondar
+um alvo que falha repetidamente, registrando um achado
+`circuit_breaker_tripped` em vez de continuar às cegas. `httpx_probe`
+repassa o mesmo ritmo pro próprio `-rate-limit` do `httpx`.
+`cve_correlation` respeita o limite geral por cima do próprio pacing
+específico da NVD. `crtsh` e `whois` fazem exatamente uma requisição por
+scan, então nenhuma dessas travas se aplica a eles.
 
-`--max-workers` only affects `tech_fingerprint` and `cloud_range` — the
-two modules with a Python-level per-host loop. `httpx_probe` already
-parallelizes internally via the external `httpx` binary's own
-`-rate-limit`; `cve_correlation` is bound by the NVD API's own request
-cap regardless of local parallelism, so it stays sequential. Raising
-`--max-workers` does not raise `--max-requests-per-second` — it lets
-that many in-flight requests share the same paced budget instead of one
-request fully finishing before the next can start, so it shortens
-wall-clock time on large scopes without sending more requests per
-second. At the default of `1`, results (finding order, which host a
-circuit-breaker trip fires on, the `skipped_hosts` count) are
-byte-for-byte identical to before this flag existed. At `--max-workers`
-above `1`, that bookkeeping still stays fully deterministic — only
-`recon audit`'s entry order for hosts processed in the same batch can
-vary between runs, never its content.
+`--max-workers` só afeta `tech_fingerprint` e `cloud_range` — os dois
+módulos com um loop por host em Python. O `httpx_probe` já paraleliza
+internamente via o próprio `-rate-limit` do binário externo `httpx`; o
+`cve_correlation` é limitado pelo próprio teto de requisições da API da
+NVD, independente de paralelismo local, então continua sequencial.
+Aumentar `--max-workers` **não** aumenta `--max-requests-per-second` —
+só permite que essa quantidade de requisições em voo compartilhe o
+mesmo orçamento de ritmo, em vez de uma requisição terminar
+completamente antes da próxima começar, encurtando o tempo de parede em
+escopos grandes sem enviar mais requisições por segundo. No padrão `1`,
+os resultados (ordem dos achados, qual host dispara um trip do circuit
+breaker, a contagem de `skipped_hosts`) são idênticos byte a byte a
+antes dessa flag existir. Com `--max-workers` acima de `1`, essa
+contabilidade continua totalmente determinística — só a ordem das
+entradas do `recon audit` para hosts processados no mesmo lote pode
+variar entre execuções, nunca o conteúdo.
 
-Modules that probe a host check the declared scope first — an
-out-of-scope host a module would otherwise touch is skipped and
-recorded as an `out_of_scope` finding instead. If narrowing scope with `--scope-include`
-would exclude the target itself, `scan` refuses to create the project
-at all.
+Módulos que sondam um host checam o escopo declarado primeiro — um host
+fora de escopo que um módulo tocaria de outra forma é pulado e
+registrado como achado `out_of_scope`. Se restringir o escopo com
+`--scope-include` excluiria o próprio alvo, `scan` recusa criar o
+projeto por completo.
 
-### View history
+### Ver histórico
 
 ```bash
 python -m app.cli history
 ```
 
-Lists every scan run so far (id, project, target, status, date).
+Lista todo scan já rodado (id, projeto, alvo, status, data).
 
-### Reprint a report
+### Reimprimir um relatório
 
 ```bash
 python -m app.cli report <scan_id>
 ```
 
-Reprints the formatted report for a scan that already completed, without
-running anything again — useful for revisiting a result without spending
-new requests against the target or the NVD.
+Reimprime o relatório formatado de um scan já concluído, sem rodar nada
+de novo — útil para revisitar um resultado sem gastar novas requisições
+contra o alvo ou a NVD.
 
-### Exporting a report
+### Exportar um relatório
 
-`recon report <scan_id>` defaults to the terminal table shown above.
-Two additional formats are available:
+`recon report <scan_id>` por padrão gera a tabela no terminal mostrada
+acima. Dois formatos adicionais estão disponíveis:
 
-- `recon report <scan_id> --format csv` — one row per CVE finding
+- `recon report <scan_id> --format csv` — uma linha por achado de CVE
   (`cve, severity, cvss, epss, status, technology, host, description,
-  evidence, remediation`), written to stdout. Column names are fixed and
-  in English regardless of `--lang`, matching `recon audit --format csv`'s
-  convention — CSV is for machines/spreadsheets, not the CLI's display
-  language.
-- `recon report <scan_id> --format pdf [--output PATH]` — a
-  self-contained PDF (executive summary, detected technologies, and
-  CVEs prioritized by CVSS with EPSS as a tie-breaker), localized per
-  `--lang`. Without `--output`/`-o`, the file is written as
-  `report_<scan_id>.pdf` in the current directory. Generating a PDF
-  needs no external tool install — `reportlab` is a pure-Python
-  dependency already pinned in `requirements.txt`, unlike `nuclei`/
-  `subfinder`/`httpx`.
+  evidence, remediation`), escrita no stdout. Os nomes das colunas são
+  fixos e em inglês independente de `--lang`, seguindo a mesma
+  convenção do `recon audit --format csv` — CSV é para
+  máquinas/planilhas, não para o idioma de exibição da CLI.
+- `recon report <scan_id> --format pdf [--output CAMINHO]` — um PDF
+  autocontido (resumo executivo, tecnologias detectadas e CVEs
+  priorizadas por CVSS com EPSS como desempate), localizado conforme
+  `--lang`. Sem `--output`/`-o`, o arquivo é gravado como
+  `report_<scan_id>.pdf` no diretório atual. Gerar o PDF não exige
+  instalação de ferramenta externa — `reportlab` é uma dependência
+  Python pura já fixada no `requirements.txt`, diferente de
+  `nuclei`/`subfinder`/`httpx`.
 
-Every CVE's EPSS score (probability of exploitation, from FIRST.org's
-free public API) is fetched and stored once, at scan time, the same way
-NVD/DeepL data already is — `report`/export commands never touch the
-network. CVSS remains the primary priority signal; EPSS only
-tie-breaks CVEs that already share the same CVSS score.
+O score EPSS (probabilidade de exploração, da API pública gratuita da
+FIRST.org) de cada CVE é buscado e gravado uma única vez, no momento do
+scan, do mesmo jeito que os dados de NVD/DeepL já são — os comandos
+`report`/export nunca tocam a rede. CVSS continua sendo o sinal
+principal de prioridade; EPSS só desempata CVEs que já compartilham a
+mesma nota CVSS.
 
-Remediation guidance comes from the confirming `nuclei` template's own
-`remediation` text when a CVE's status is `confirmed`; otherwise a
-generic "upgrade to a patched version" message names the affected
-technology without guessing a specific fixed version number.
+A recomendação de remediação vem do próprio texto `remediation` do
+template `nuclei` que confirmou, quando o status da CVE é `confirmed`;
+caso contrário, uma mensagem genérica de "atualize para uma versão
+corrigida" nomeia a tecnologia afetada sem chutar um número de versão
+específico.
 
-### View the audit trail
+### Ver a trilha de auditoria
 
 ```bash
 python -m app.cli audit <scan_id> --format table
 python -m app.cli audit <scan_id> --format csv > audit.csv
 ```
 
-Lists every recorded `AuditEntry` for a scan — module, target, URL,
-outcome, timestamp. `table` (default) matches `report`'s Rich styling;
-`csv` writes to stdout via the stdlib `csv` module (no `--output` flag).
-See [Audit trail](#audit-trail) for what gets recorded and why.
+Lista toda `AuditEntry` registrada de um scan — módulo, alvo, URL,
+resultado, timestamp. `table` (padrão) segue o mesmo estilo Rich do
+`report`; `csv` escreve no stdout via o módulo `csv` da stdlib (sem
+flag `--output`). Veja [Trilha de auditoria](#trilha-de-auditoria) para
+o que é registrado e por quê.
 
 <details>
-<summary><strong>See full <code>--help</code></strong></summary>
+<summary><strong>Ver <code>--help</code> completo</strong></summary>
 
 ```text
 $ python -m app.cli --help
@@ -587,6 +681,7 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 +- Commands ------------------------------------------------------------------+
 | scan                                                                        |
 | history                                                                     |
+| update-fingerprints                                                         |
 | report                                                                      |
 | audit                                                                       |
 +-----------------------------------------------------------------------------+
@@ -596,192 +691,218 @@ Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
 
 ---
 
-## Authorization and responsible use
+## Autorização e uso responsável
 
-> [!IMPORTANT]
-> This is an offensive tool. It sends real requests against whatever
-> target you give it — subdomain discovery, direct HTTP probing, DNS
-> resolution. **Only use it against systems you own or have explicit,
-> documented authorization to test** (a contracted pentest, a bug bounty
-> with defined scope, your own systems, or public test domains like
-> `example.com`).
+A ferramenta impõe duas travas técnicas, não só uma recomendação:
 
-The tool enforces two technical gates, not just a recommendation:
+1. **`--authorized`** — obrigatória em todo `scan`. Sem essa flag,
+   nenhum projeto é criado e nenhuma requisição sai da sua máquina.
+2. **`--confirm-active`** — obrigatória sempre que um módulo está
+   marcado como ativo no registro (`httpx_probe` e `tech_fingerprint`
+   hoje — eles enviam requisições HTTP reais diretamente contra o alvo,
+   diferente de módulos passivos como `crtsh` ou `whois`, que consultam
+   serviços de terceiros).
 
-1. **`--authorized`** — required on every `scan`. Without this flag, no
-   project is created and no request leaves your machine.
-2. **`--confirm-active`** — required whenever a module is marked active
-   in the registry (`httpx_probe` and `tech_fingerprint` today — they
-   send real HTTP requests directly at the target, unlike passive modules
-   like `crtsh` or `whois`, which query third-party services).
+Todo projeto grava seu `scope_notes` — a descrição de escopo que você
+forneceu — junto com os resultados, então o histórico de scans carrega o
+registro da autorização declarada.
 
-Every project stores its `scope_notes` — the scope description you
-provided — alongside the results, so the scan history carries the record
-of declared authorization.
+## Como funciona por dentro
 
-## How it works internally
-
-```
-recon scan → creates Project + Scan (SQLite)
+```text
+recon scan → cria Project + Scan (SQLite)
            → orchestrator.run_scan(scan_id)
-                → iterates MODULE_REGISTRY ordered by run_order
-                     10  discovery      (crtsh, subfinder, subdomain_permutation)
-                     50  analysis       (cloud_range, httpx_probe, tech_fingerprint, whois)
-                     90  correlation    (cve_correlation)
-                → each module receives (target, context) and returns Finding[]
-                → context["subdomains"] and context["technologies"] accumulate
-                  as modules run, feeding later modules
-                → every Finding is persisted, isolated per module — a broken
-                  module becomes a module_error Finding, the scan continues
-           → CLI prints the grouped report
+                → itera MODULE_REGISTRY ordenado por run_order
+                     10  descoberta     (crtsh, subfinder, subdomain_permutation)
+                     50  análise        (cloud_range, httpx_probe, tech_fingerprint, whois)
+                     90  correlação     (cve_correlation)
+                     95  validação      (nuclei_validation)
+                → cada módulo recebe (target, context) e devolve Finding[]
+                → context["subdomains"] e context["technologies"] acumulam
+                  conforme os módulos rodam, alimentando os próximos
+                → todo Finding é persistido, isolado por módulo — um
+                  módulo quebrado vira um Finding module_error, o scan continua
+           → a CLI imprime o relatório agrupado
 ```
 
-The core is a **plugin registry**: each module is a Python class decorated
-with `@register_module`, with a `run_order` attribute (controls when it
-runs) and `is_active` (controls whether it requires `--confirm-active`).
-Adding a new module doesn't require touching the orchestrator — just
-create the file and import it in `app/modules/__init__.py`.
+O núcleo é um **registro de plugins**: cada módulo é uma classe Python
+decorada com `@register_module`, com um atributo `run_order` (controla
+quando roda) e `is_active` (controla se exige `--confirm-active`).
+Adicionar um módulo novo não exige tocar no orquestrador — só criar o
+arquivo e importá-lo em `app/modules/__init__.py`.
 
-## Module catalog
+## Catálogo de módulos
 
-| Module | `run_order` | Active? | What it does |
-|---|---|---|---|
-| `crtsh` | 10 | no | Queries public certificate transparency logs (crt.sh) for subdomains that appeared in issued SSL certificates |
-| `subfinder` | 10 | no | Aggregates subdomains from multiple passive sources via the external `subfinder` tool |
-| `subdomain_permutation` | 10 | no | Generates candidates by combining a wordlist of common environment names (dev, staging, admin, api, vpn...) with subdomains already discovered |
-| `cloud_range` | 50 | no | Resolves each host via DNS and checks whether the IP falls inside a known AWS/GCP/Azure range |
-| `httpx_probe` | 50 | **yes** | Visits each candidate host via real HTTP, confirms which are alive, does basic fingerprinting via `httpx -tech-detect` |
-| `tech_fingerprint` | 50 | **yes** | Wappalyzer-driven technology detection with active path probes — see the dedicated section below |
-| `whois` | 50 | no | Queries the domain's real registration data |
-| `cve_correlation` | 90 | no | Correlates each technology with a known version against the real NVD API |
-| `nuclei_validation` | 95 | **yes** | Runs `nuclei` templates matched by CVE ID against `suspected` CVE findings to confirm exploitability, excluding `dos`/`fuzz`/`intrusive`-tagged templates |
+| Módulo | `run_order` | Ativo? | O que faz |
+|---|:---:|:---:|---|
+| `crtsh` | 10 | — | Consulta logs públicos de certificate transparency (crt.sh) por subdomínios que apareceram em certificados SSL emitidos |
+| `subfinder` | 10 | — | Agrega subdomínios de múltiplas fontes passivas via a ferramenta externa `subfinder` |
+| `subdomain_permutation` | 10 | — | Gera candidatos combinando uma wordlist de nomes comuns (dev, staging, admin, api, vpn...) com subdomínios já descobertos |
+| `cloud_range` | 50 | — | Resolve cada host via DNS e verifica se o IP cai dentro de uma faixa conhecida da AWS/GCP/Azure |
+| `httpx_probe` | 50 | **sim** | Visita cada host candidato via HTTP real, confirma quais estão vivos, faz fingerprinting básico via `httpx -tech-detect` |
+| `tech_fingerprint` | 50 | **sim** | Detecção de tecnologia orientada por Wappalyzer com sondas de path ativas — veja a seção dedicada abaixo |
+| `whois` | 50 | — | Consulta os dados reais de registro do domínio |
+| `cve_correlation` | 90 | — | Correlaciona cada tecnologia com versão conhecida contra a API real da NVD |
+| `nuclei_validation` | 95 | **sim** | Roda templates `nuclei` casados por ID de CVE contra achados `suspected`, excluindo templates com tag `dos`/`fuzz`/`intrusive` |
 
-"Active" = sends requests directly against the target/subdomains, beyond
-just querying third-party services. Active modules require
+"Ativo" = envia requisições diretamente contra o alvo/subdomínios, além
+de só consultar serviços de terceiros. Módulos ativos exigem
 `--confirm-active`.
 
-## Technology fingerprinting
+## Fingerprint de tecnologias
 
-`tech_fingerprint` detects technologies using a vendored copy of the
-[Wappalyzer](https://github.com/enthec/webappanalyzer) fingerprint
-dataset (thousands of technologies, community-maintained) plus
-project-specific active path probes. See
-[Update the technology fingerprint dataset](#update-the-technology-fingerprint-dataset)
-above for how to refresh the dataset and its known limitations.
+`tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
+dataset do [Wappalyzer](https://github.com/enthec/webappanalyzer)
+(milhares de tecnologias, mantido pela comunidade) mais sondas ativas
+próprias do projeto. Veja
+[Atualizar o dataset de fingerprint de tecnologias](#atualizar-o-dataset-de-fingerprint-de-tecnologias)
+acima para como atualizar o dataset e suas limitações conhecidas.
 
-Database fingerprinting is deliberately limited to indirect signals
-(cookies, headers, error messages already exposed) — direct detection via
-injection techniques is vulnerability testing, not recon, and is out of
-scope for this tool.
+Fingerprint de banco de dados é deliberadamente limitado a sinais
+indiretos (cookies, headers, mensagens de erro já expostas) — detecção
+direta via técnicas de injeção é teste de vulnerabilidade, não
+reconhecimento, e está fora do escopo desta ferramenta.
 
-## CVE correlation
+## Correlação de CVE
 
-`cve_correlation` doesn't do exact-phrase search against the NVD — that
-approach was tried, tested live, and dropped because it returned nearly
-zero real results (most CVE descriptions don't cite the version as
-literal text). The real approach:
+`cve_correlation` não faz busca por frase exata contra a NVD — essa
+abordagem foi testada ao vivo e descartada porque retornava quase zero
+resultados reais (a maioria das descrições de CVE não cita a versão
+como texto literal). A abordagem real:
 
-1. Keyword search on just the technology's **name**
+1. Busca por palavra-chave só no **nome** da tecnologia
    (`keywordSearch=nginx`).
-2. For each CVE returned, reads the `configurations` list the NVD
-   attaches — the CPE ranges (`versionStartIncluding`,
-   `versionEndExcluding`, etc.) that define which versions are actually
-   affected.
-3. Only reports the CVE if the detected version actually falls inside the
-   range (or matches exactly a version pinned in the CPE, when there's no
-   range).
+2. Para cada CVE retornada, lê a lista `configurations` que a NVD anexa
+   — as faixas de CPE (`versionStartIncluding`, `versionEndExcluding`,
+   etc.) que definem quais versões estão realmente afetadas.
+3. Só reporta a CVE se a versão detectada realmente cair dentro da faixa
+   (ou bater exatamente com uma versão fixada no CPE, quando não há
+   faixa).
 
-Validated live: `nginx 1.18.0` correctly returns **46 real CVEs** against
-the NVD's production API.
+Validado ao vivo: `nginx 1.18.0` retorna corretamente **46 CVEs reais**
+contra a API de produção da NVD.
 
-The report's **Status** column for each CVE shows either `suspected` or
-`confirmed`. `suspected` means the version falls inside the CVE's CPE range
-according to the NVD — that's the result of structural correlation alone.
-`confirmed` means `nuclei_validation` ran a community-maintained template
-for that CVE against the target and the template reported a positive result,
-confirming the vulnerability can be actually reproduced via a safe check
-(no exploitation, just detection). The **Evidence** column for confirmed
-CVEs shows which `nuclei` template ID matched and at which timestamp.
+A coluna **Status** de cada CVE no relatório mostra `suspected` ou
+`confirmed`. `suspected` significa que a versão cai dentro da faixa de
+CPE da CVE segundo a NVD — resultado só da correlação estrutural.
+`confirmed` significa que `nuclei_validation` rodou um template
+mantido pela comunidade para aquela CVE contra o alvo e o template
+reportou um resultado positivo, confirmando que a vulnerabilidade pode
+realmente ser reproduzida via uma checagem segura (sem exploração,
+só detecção). A coluna **Evidence** para CVEs confirmadas mostra qual ID
+de template do `nuclei` bateu e em qual timestamp.
 
-## Configuration
+## Configuração
 
-Environment variables read from `backend/.env` (never committed —
-already covered by `.gitignore`):
+Variáveis de ambiente lidas de `backend/.env` (nunca commitado — já
+coberto pelo `.gitignore`):
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `DATABASE_URL` | no | `sqlite:///./dev.db` | SQLAlchemy connection string. Local SQLite by default — works without any external database |
-| `NVD_API_KEY` | no | (none) | Raises the NVD request limit from 5/30s to 50/30s. Free at nvd.nist.gov |
-| `DEEPL_API_KEY` | no | (none) | Enables Portuguese translation of NVD's CVE descriptions. Free tier at deepl.com. Without it, CVE descriptions stay English-only and the report marks the Portuguese cell as unavailable when `--lang pt` is used. |
+| Variável | Obrigatória | Padrão | Descrição |
+|---|:---:|---|---|
+| `DATABASE_URL` | não | `sqlite:///./dev.db` | String de conexão SQLAlchemy. SQLite local por padrão — funciona sem nenhum banco externo |
+| `NVD_API_KEY` | não | (nenhuma) | Eleva o limite de requisições à NVD de 5/30s para 50/30s. Gratuita em nvd.nist.gov |
+| `DEEPL_API_KEY` | não | (nenhuma) | Ativa a tradução para português das descrições de CVE da NVD. Nível gratuito em deepl.com. Sem ela, as descrições de CVE ficam só em inglês e o relatório marca a célula em português como indisponível quando `--lang pt` é usado |
 
-## Data and persistence
+## Dados e persistência
 
-Four SQLite tables (`app/models.py`):
+Quatro tabelas SQLite (`app/models.py`):
 
-```
+```text
 Project(id, name, target, scope_notes, authorized, authorized_at, created_at)
 Scan(id, project_id, status, started_at, finished_at)
 Finding(id, scan_id, module, type, value, data:JSON, created_at)
 AuditEntry(id, scan_id, module, target, url, outcome, requested_at)
 ```
 
-`Finding.type` currently includes: `subdomain`, `whois`, `live_host`,
+`Finding.type` inclui hoje: `subdomain`, `whois`, `live_host`,
 `technology`, `cve`, `cloud_asset`, `module_error`,
 `circuit_breaker_tripped`, `out_of_scope`, `scope_window_closed`.
-`Finding.data` holds the type-specific payload (category/version/
-confidence for technology; CVSS/severity/description for CVE, etc).
+`Finding.data` guarda o payload específico do tipo (categoria/versão/
+confiança para tecnologia; CVSS/severidade/descrição para CVE, etc).
 
-## Audit trail
+## Trilha de auditoria
 
-Every real network request the tool makes — against the target/
-subdomains and against third-party services like the NVD — is recorded
-as an `AuditEntry`: module, target, URL (when applicable), outcome, and
-timestamp. This is separate from the findings report; it exists to
-prove what the tool actually touched, independent of what turned into
-a finding. `subfinder` and `httpx_probe` shell out to external Go
-binaries and can't see the individual requests those binaries make
-internally, so they get one entry per invocation/per-host respectively
-— an accepted approximation, not literal per-socket-request fidelity.
+Toda requisição de rede real que a ferramenta faz — contra o alvo/
+subdomínios e contra serviços de terceiros como a NVD — é registrada
+como uma `AuditEntry`: módulo, alvo, URL (quando aplicável), resultado e
+timestamp. Isso é separado do relatório de achados; existe para provar
+o que a ferramenta realmente tocou, independente do que virou um
+achado. `subfinder` e `httpx_probe` chamam binários Go externos e não
+enxergam as requisições individuais que esses binários fazem
+internamente, então recebem uma entrada por invocação/por host
+respectivamente — uma aproximação aceita, não fidelidade literal por
+socket.
 
 ```bash
 python -m app.cli audit <scan_id> --format table
 python -m app.cli audit <scan_id> --format csv > audit.csv
 ```
 
-## Tests
+## Testes
 
 ```bash
 cd backend
 pytest -v
 ```
 
-136 tests, covering each module in isolation (mocking external calls), the
-orchestrator (per-module failure isolation, `run_order` ordering, context
-propagation), rate limiting/circuit breaker behavior in isolation, and
-the CLI (`typer.testing.CliRunner`, mocking the orchestrator so it
-doesn't depend on the network).
+**243 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+externas), o orquestrador (isolamento de falha por módulo, ordenação
+por `run_order`, propagação de contexto), comportamento de rate
+limiting/circuit breaker sob concorrência real (múltiplas threads
+disputando os mesmos primitivos compartilhados), e a CLI
+(`typer.testing.CliRunner`, mockando o orquestrador para não depender da
+rede).
 
-## Known limitations
+## Limitações conhecidas
 
-- **`subfinder`/`httpx` require manual installation** of external Go
-  tools — without them, those two specific modules are limited (they
-  become `module_error`, the rest of the scan continues normally).
-- **No CVE cache** — every NVD query is a fresh network call, even
-  repeating the same target/technology across scans.
-- **`subdomain_permutation` generates unconfirmed candidates** — they
-  show up as a `subdomain` finding even without confirmation that they
-  actually respond, unless `httpx_probe` is installed to filter for
-  what's actually alive.
-- **CDN/frontend fingerprinting covers a fixed set** — platforms outside
-  the table (e.g. Vercel) or modern variations of a framework (e.g.
-  Next.js App Router, which no longer exposes the marker the current rule
-  looks for) aren't detected yet.
+- **`subfinder`/`httpx` exigem instalação manual** de ferramentas Go
+  externas — sem elas, esses dois módulos específicos ficam limitados
+  (viram `module_error`, o resto do scan continua normal).
+- **Sem cache de CVE** — toda consulta à NVD é uma chamada de rede nova,
+  mesmo repetindo o mesmo alvo/tecnologia entre scans.
+- **`subdomain_permutation` gera candidatos não confirmados** — eles
+  aparecem como achado `subdomain` mesmo sem confirmação de que
+  realmente respondem, a menos que o `httpx_probe` esteja instalado para
+  filtrar o que está de fato vivo.
+- **Alguns nomes de cookie usados como regex** no dataset do Wappalyzer
+  (Drupal, ASP.NET, Joomla...) são checados literalmente — algumas
+  entradas silenciosamente não disparam.
+- **Sem cache de página renderizada** — tecnologias que só se revelam
+  via JavaScript executado (parte do gap de detecção do Next.js App
+  Router, por exemplo) não são cobertas, já que a ferramenta nunca roda
+  um navegador.
 
 ## Roadmap
 
-- CVE result caching between scans
-- Favicon-hash fingerprinting
-- Coverage for more hosting/CDN platforms (Vercel, Netlify, Render) and
-  Next.js App Router
-- Asset correlation graph (domain → subdomain → IP → technology → CVE)
-- Active network recon catalog (port scan, deep TLS inspection)
+Progresso do roadmap enterprise-grade — **8 de 8 fases concluídas**:
+
+| Fase | Entrega | Status |
+|:---:|---|:---:|
+| A | Internacionalização (inglês primeiro, português selecionável) | ✅ |
+| B | Rate limiting e circuit breaker configuráveis | ✅ |
+| C | Escopo estruturado e imposto (não só declarado) | ✅ |
+| D | Trilha de auditoria completa | ✅ |
+| E | Validação ativa de vulnerabilidade via `nuclei` | ✅ |
+| F | Relatório profissional + exportação PDF/CSV | ✅ |
+| G | Cobertura de fingerprint ampliada (motor Wappalyzer, +7.500 tecnologias) | ✅ |
+| H | Execução em escala — concorrência local controlada (`--max-workers`) | ✅ |
+
+**Próximos passos considerados** (sem fase formal ainda):
+
+- Cache de resultado de CVE entre scans
+- Fingerprint por hash de favicon
+- Cobertura para mais plataformas de hosting/CDN (Vercel, Netlify,
+  Render) e Next.js App Router
+- Grafo de correlação de ativos (domínio → subdomínio → IP → tecnologia
+  → CVE)
+- Catálogo de reconhecimento de rede ativo (varredura de porta,
+  inspeção TLS profunda)
+
+---
+
+<div align="center">
+
+Licenciado sob [MIT](LICENSE). Ferramenta ofensiva — use com
+responsabilidade e sempre com autorização explícita.
+
+</div>
