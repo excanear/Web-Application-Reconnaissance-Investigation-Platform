@@ -71,6 +71,11 @@ def scan(
         "--circuit-breaker-threshold",
         help="Consecutive failures against a target before a module stops probing it",
     ),
+    max_workers: int = typer.Option(
+        1,
+        "--max-workers",
+        help="Process up to this many hosts concurrently within tech_fingerprint/cloud_range (default: fully sequential)",
+    ),
     scope_include: list[str] = typer.Option(
         None, "--scope-include", help="Domain pattern or CIDR explicitly in scope (repeatable)"
     ),
@@ -149,6 +154,7 @@ def scan(
         progress_callback=on_progress,
         rate_limit=max_requests_per_second,
         circuit_breaker_threshold=circuit_breaker_threshold,
+        max_workers=max_workers,
     )
 
     lang = i18n.current_lang()

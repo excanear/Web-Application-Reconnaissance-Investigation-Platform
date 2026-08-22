@@ -239,6 +239,50 @@ def test_run_scan_uses_default_rate_limit_and_threshold_when_not_specified():
     assert seen_context == {"rate_limit": 5.0, "circuit_breaker_threshold": 5}
 
 
+def test_run_scan_threads_max_workers_into_context():
+    seen_context = {}
+
+    class _MaxWorkersCapturingModule(ReconModule):
+        name = "_test_max_workers_capturing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            seen_context["max_workers"] = context.get("max_workers")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_MaxWorkersCapturingModule)
+        with _mock_all_modules(exclude={_MaxWorkersCapturingModule.name}):
+            run_scan(scan_id, max_workers=7)
+    finally:
+        del MODULE_REGISTRY[_MaxWorkersCapturingModule.name]
+
+    assert seen_context == {"max_workers": 7}
+
+
+def test_run_scan_uses_default_max_workers_when_not_specified():
+    seen_context = {}
+
+    class _DefaultMaxWorkersCapturingModule(ReconModule):
+        name = "_test_default_max_workers_capturing_module"
+        run_order = 20
+
+        def run(self, target, context):
+            seen_context["max_workers"] = context.get("max_workers")
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_DefaultMaxWorkersCapturingModule)
+        with _mock_all_modules(exclude={_DefaultMaxWorkersCapturingModule.name}):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_DefaultMaxWorkersCapturingModule.name]
+
+    assert seen_context == {"max_workers": 1}
+
+
 def test_run_scan_filters_out_of_scope_subdomains_before_later_modules_see_them():
     seen_subdomains = []
 

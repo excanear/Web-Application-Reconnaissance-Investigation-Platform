@@ -132,6 +132,44 @@ def test_scan_forwards_custom_rate_limit_and_circuit_breaker_threshold():
     assert mock_run_scan.call_args.kwargs["circuit_breaker_threshold"] == 3
 
 
+def test_scan_defaults_max_workers_to_one():
+    with patch("app.cli.run_scan") as mock_run_scan:
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_run_scan.call_args.kwargs["max_workers"] == 1
+
+
+def test_scan_forwards_custom_max_workers():
+    with patch("app.cli.run_scan") as mock_run_scan:
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+                "--max-workers",
+                "8",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_run_scan.call_args.kwargs["max_workers"] == 8
+
+
 def test_history_lists_past_scans():
     db = SessionLocal()
     try:

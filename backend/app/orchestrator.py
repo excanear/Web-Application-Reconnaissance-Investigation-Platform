@@ -9,6 +9,7 @@ from app.timeutil import utc_now
 
 DEFAULT_RATE_LIMIT = 5.0
 DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
+DEFAULT_MAX_WORKERS = 1
 
 
 def run_scan(
@@ -16,6 +17,7 @@ def run_scan(
     progress_callback: Callable[[str], None] | None = None,
     rate_limit: float = DEFAULT_RATE_LIMIT,
     circuit_breaker_threshold: int = DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+    max_workers: int = DEFAULT_MAX_WORKERS,
 ) -> None:
     progress_callback = progress_callback or (lambda module_name: None)
     db = SessionLocal()
@@ -38,6 +40,7 @@ def run_scan(
             "cve_findings": [],
             "rate_limit": rate_limit,
             "circuit_breaker_threshold": circuit_breaker_threshold,
+            "max_workers": max_workers,
             "scope": scan.project.scope or {},
             "audit": AuditLog(),
         }
