@@ -71,6 +71,8 @@ STRINGS = {
         "invalid_report_format": "--format must be 'table', 'csv', or 'pdf'.",
         "report_pdf_saved": "PDF report saved to {path}",
         "report_pdf_write_failed": "could not write the PDF report: {error}",
+        "fingerprint_update_failed": "could not update the fingerprint dataset: {error}",
+        "fingerprint_update_saved": "Fingerprint dataset updated: {tech_count} technologies, {cat_count} categories.",
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -136,6 +138,8 @@ STRINGS = {
         "invalid_report_format": "--format deve ser 'table', 'csv' ou 'pdf'.",
         "report_pdf_saved": "Relatorio PDF salvo em {path}",
         "report_pdf_write_failed": "nao foi possivel escrever o relatorio PDF: {error}",
+        "fingerprint_update_failed": "nao foi possivel atualizar o dataset de fingerprint: {error}",
+        "fingerprint_update_saved": "Dataset de fingerprint atualizado: {tech_count} tecnologias, {cat_count} categorias.",
     },
 }
 
