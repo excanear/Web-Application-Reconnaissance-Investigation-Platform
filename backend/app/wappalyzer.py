@@ -89,6 +89,17 @@ def _parse_pattern(raw: str) -> ParsedPattern:
 
 
 def _substitute_version(template: str, match: re.Match) -> str | None:
+    # Wappalyzer's `version:\1?Enterprise:Community` ternary syntax picks
+    # between two literal strings depending on whether group 1 matched.
+    # Evaluating that ternary is out of scope here -- but naively
+    # substituting \1 and leaving the "?a:b" tail in place would produce a
+    # garbled string like "1 (Enterprise)?Enterprise:Community" reported
+    # at "high" confidence, which is worse than reporting no version at
+    # all. Detect the annotation (a literal "?" in the raw template) and
+    # bail out to "no version" instead of fabricating one.
+    if "?" in template:
+        return None
+
     def repl(m: re.Match) -> str:
         try:
             group = match.group(int(m.group(1)))
@@ -101,14 +112,25 @@ def _substitute_version(template: str, match: re.Match) -> str | None:
 
 
 def _try_match(name: str, category: str, raw_pattern: str, value: str, host: str, source: str) -> Finding | None:
-    parsed = _parse_pattern(raw_pattern)
-    version = None
-    if parsed.regex:
-        match = re.search(parsed.regex, value or "", re.IGNORECASE)
-        if not match:
-            return None
-        if parsed.version_template:
-            version = _substitute_version(parsed.version_template, match)
+    # `raw_pattern` and `value` both originate from externally-sourced
+    # data -- the vendored (but upstream-updatable) technologies.json can
+    # contain a regex Python's `re` module rejects (re.error), and
+    # upstream's schema permits list-valued headers/cookies/meta entries
+    # where this code expects a string (TypeError/AttributeError). One
+    # malformed technology definition must never abort matching for every
+    # other technology, so a single bad pattern is skipped here rather
+    # than left to propagate out of match_technologies.
+    try:
+        parsed = _parse_pattern(raw_pattern)
+        version = None
+        if parsed.regex:
+            match = re.search(parsed.regex, value or "", re.IGNORECASE)
+            if not match:
+                return None
+            if parsed.version_template:
+                version = _substitute_version(parsed.version_template, match)
+    except (re.error, TypeError, AttributeError):
+        return None
     return Finding(
         type="technology",
         value=host,
@@ -157,9 +179,14 @@ def match_technologies(host: str, response, technologies: dict | None = None) ->
     (headers/cookies/meta/html/scriptSrc). `technologies` defaults to the
     vendored dataset via load_technologies() -- tests pass a small
     synthetic dict directly instead of depending on the real vendored
-    file. Returns one Finding per (technology, matching check): the same
-    technology can appear more than once if multiple independent checks
-    match."""
+    file. Returns at most one Finding per distinct (host, name, version)
+    tuple: several checks (e.g. a header match and a meta match, or two
+    scriptSrc patterns) can independently identify the same technology at
+    the same version, but reporting each of those as a separate Finding
+    only makes cve_correlation query NVD for the same (name, version)
+    pair over and over -- each a redundant network round trip plus a
+    rate-limit sleep. The first check to find a given (host, name,
+    version) wins; later ones matching the same tuple are dropped."""
     if technologies is None:
         technologies = load_technologies()
     categories = load_categories()
@@ -168,6 +195,17 @@ def match_technologies(host: str, response, technologies: dict | None = None) ->
     script_srcs = _extract_script_srcs(text)
 
     findings: list[Finding] = []
+    seen: set[tuple[str, str, str | None]] = set()
+
+    def _add(finding: Finding | None) -> None:
+        if finding is None:
+            return
+        key = (finding.value, finding.data["name"], finding.data["version"])
+        if key in seen:
+            return
+        seen.add(key)
+        findings.append(finding)
+
     for name, definition in technologies.items():
         if not _has_supported_check(definition):
             continue
@@ -177,36 +215,28 @@ def match_technologies(host: str, response, technologies: dict | None = None) ->
             value = response.headers.get(header_name)
             if value is None:
                 continue
-            finding = _try_match(name, category, raw_pattern, value, host, "header")
-            if finding:
-                findings.append(finding)
+            _add(_try_match(name, category, raw_pattern, value, host, "header"))
 
         for cookie_name, raw_pattern in definition.get("cookies", {}).items():
             if cookie_name not in response.cookies:
                 continue
             value = response.cookies.get(cookie_name) or ""
-            finding = _try_match(name, category, raw_pattern, value, host, "cookie")
-            if finding:
-                findings.append(finding)
+            _add(_try_match(name, category, raw_pattern, value, host, "cookie"))
 
         for meta_name, raw_pattern in definition.get("meta", {}).items():
             value = meta_tags.get(meta_name.lower())
             if value is None:
                 continue
-            finding = _try_match(name, category, raw_pattern, value, host, "meta")
-            if finding:
-                findings.append(finding)
+            _add(_try_match(name, category, raw_pattern, value, host, "meta"))
 
         for raw_pattern in _as_list(definition.get("html")):
-            finding = _try_match(name, category, raw_pattern, text, host, "html")
-            if finding:
-                findings.append(finding)
+            _add(_try_match(name, category, raw_pattern, text, host, "html"))
 
         for raw_pattern in _as_list(definition.get("scriptSrc")):
             for src in script_srcs:
                 finding = _try_match(name, category, raw_pattern, src, host, "scriptSrc")
                 if finding:
-                    findings.append(finding)
+                    _add(finding)
                     break
 
     return findings

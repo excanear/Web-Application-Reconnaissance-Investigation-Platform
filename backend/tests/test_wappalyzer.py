@@ -52,6 +52,11 @@ def test_substitute_version_returns_none_when_the_referenced_group_is_absent():
     assert _substitute_version(r"\1", match) is None
 
 
+def test_substitute_version_returns_none_for_a_ternary_annotation():
+    match = re.search(r"SomeCMS/([\d.]+)", "SomeCMS/2.0")
+    assert _substitute_version(r"\1?Enterprise:Community", match) is None
+
+
 def test_matches_a_header_and_extracts_the_version(monkeypatch):
     monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
     technologies = {
@@ -164,7 +169,14 @@ def test_uses_the_first_listed_category_when_a_technology_has_several(monkeypatc
     assert findings[0].data["category"] == "cms"
 
 
-def test_a_technology_can_produce_more_than_one_finding_from_independent_checks(monkeypatch):
+def test_independent_checks_matching_the_same_host_name_version_are_deduplicated(monkeypatch):
+    # Both the header check and the meta check identify the same
+    # technology at the same (host, name, version) tuple -- (example.com,
+    # "WordPress", None) here, since neither pattern captures a version.
+    # Reporting that tuple twice would make cve_correlation query NVD for
+    # the same technology twice, so match_technologies keeps only the
+    # first Finding for a given (host, name, version); whichever check
+    # ran first (headers, before meta) wins.
     monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
     technologies = {
         "WordPress": {
@@ -180,5 +192,83 @@ def test_a_technology_can_produce_more_than_one_finding_from_independent_checks(
 
     findings = match_technologies("example.com", response, technologies=technologies)
 
-    assert len(findings) == 2
-    assert {f.data["source"] for f in findings} == {"header", "meta"}
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "WordPress"
+    assert findings[0].data["version"] is None
+    assert findings[0].data["source"] == "header"
+
+
+def test_two_patterns_matching_the_same_check_type_produce_only_one_finding(monkeypatch):
+    # Two scriptSrc patterns both matching the same jQuery script tag
+    # (e.g. one from a project override and one from the vendored
+    # dataset) must not produce two Findings for the same (host, name,
+    # version) -- that's the literal duplicate-pattern case the dedup
+    # exists to eliminate.
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "jQuery": {
+            "cats": [12],
+            "scriptSrc": [
+                r"jquery[.-]?([\d.]+)?(?:\.min)?\.js\;version:\1",
+                r"jquery\.js",
+            ],
+        }
+    }
+    response = _response(text='<script src="/static/jquery-3.6.0.min.js"></script>')
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "jQuery"
+    assert findings[0].data["version"] == "3.6.0"
+
+
+def test_ternary_version_annotation_is_detected_without_a_fabricated_version(monkeypatch):
+    # Wappalyzer's `version:\1?Enterprise:Community` ternary syntax is not
+    # evaluated by this engine -- the technology must still be detected,
+    # but no garbled/fabricated version should be reported, and
+    # confidence must fall to "medium" (only a real version bumps it to
+    # "high").
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "SomeCMS": {
+            "cats": [1],
+            "headers": {"X-Powered-By": r"SomeCMS\/?([\d.]+)?\;version:\1?Enterprise:Community"},
+        }
+    }
+    response = _response(headers={"X-Powered-By": "SomeCMS/2.0"})
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "SomeCMS"
+    assert findings[0].data["version"] is None
+    assert findings[0].data["confidence"] == "medium"
+
+
+def test_a_malformed_pattern_in_one_technology_does_not_abort_matching_the_rest(monkeypatch):
+    # The vendored dataset is refreshed from upstream Wappalyzer, whose
+    # schema permits shapes this engine doesn't fully model (e.g.
+    # list-valued header patterns) and can contain regexes Python's `re`
+    # rejects. A single malformed technology definition must be skipped,
+    # not crash match_technologies for every other technology in the same
+    # scan.
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "Broken": {"cats": [1], "headers": {"X-Broken": "(unclosed"}},
+        "AlsoBroken": {"cats": [1], "headers": {"X-Also-Broken": ["not", "a", "string"]}},
+        "nginx": {"cats": [18], "headers": {"Server": r"nginx\/?([\d.]+)?\;version:\1"}},
+    }
+    response = _response(
+        headers={
+            "X-Broken": "anything",
+            "X-Also-Broken": "anything",
+            "Server": "nginx/1.18.0",
+        }
+    )
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "nginx"
+    assert findings[0].data["version"] == "1.18.0"
