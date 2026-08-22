@@ -163,3 +163,36 @@ def test_max_workers_greater_than_one_still_resolves_every_host():
 
     cloud_assets = {f.value for f in findings if f.type == "cloud_asset"}
     assert cloud_assets == {f"host{i}.example.com" for i in range(6)} | {"example.com"}
+
+
+def test_max_workers_circuit_breaker_trips_deterministically_on_batch_boundary():
+    # 6 hosts total (sorted: example.com, host0..host4), max_workers=3 ->
+    # two batches of 3. threshold=2 failures trips inside the first
+    # batch (both resolutions in that batch fail) -- this can only
+    # produce the exact expected skipped_hosts count if hosts are
+    # genuinely processed in batches of 3 with the same deterministic
+    # bookkeeping order tech_fingerprint.py already uses, not a plain
+    # per-host loop that happens to ignore max_workers.
+    with patch(
+        "app.modules.cloud_range.socket.gethostbyname",
+        side_effect=OSError("unknown host"),
+    ):
+        findings = CloudRangeModule().run(
+            "example.com",
+            {
+                "subdomains": {f"host{i}.example.com" for i in range(5)},
+                "circuit_breaker_threshold": 2,
+                "max_workers": 3,
+            },
+        )
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
+    # sorted hosts: ["example.com", "host0.example.com", "host1.example.com",
+    #                "host2.example.com", "host3.example.com", "host4.example.com"]
+    # batch 1 = indices 0,1,2 -> failures at index 0 and 1 trip the breaker
+    # (threshold=2) during the deterministic bookkeeping pass over batch 1's
+    # results, at index 1 ("host0.example.com") -- matching what max_workers=1
+    # would produce at that same host-list position.
+    assert tripped[0].value == "host0.example.com"
+    assert tripped[0].data["skipped_hosts"] == 4
