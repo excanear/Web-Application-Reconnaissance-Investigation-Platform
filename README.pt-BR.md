@@ -391,6 +391,46 @@ Toda invocação de `nuclei` exclui incondicionalmente templates com tags
 `dos`, `fuzz` e `intrusive` — é uma restrição de segurança codificada,
 não uma configuração.
 
+### Atualizando o dataset de fingerprint de tecnologias
+
+O `tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
+dataset do [Wappalyzer](https://github.com/enthec/webappanalyzer)
+(milhares de tecnologias, fork mantido pela comunidade do projeto
+Wappalyzer original) mais um pequeno conjunto de sondas ativas próprias
+do projeto (hoje só o `/CHANGELOG.txt` do WordPress, pra precisão de
+versão além do que uma checagem passiva oferece).
+
+O dataset vendorizado (`backend/app/data/technologies.json`,
+`backend/app/data/categories.json`) vem junto com o repositório mas
+fica desatualizado com o tempo. Atualize com:
+
+```
+recon update-fingerprints
+```
+
+É uma operação de manutenção local — não toca em nenhum alvo, não
+precisa de `--authorized`/`--confirm-active`, mesma postura do `nuclei
+-update-templates`. Uma falha de rede deixa os arquivos vendorizados
+existentes intocados.
+
+**Limitações conhecidas:**
+- Só tecnologias detectáveis a partir de uma única resposta HTTP
+  (headers/cookies/meta tags/corpo HTML/URLs de `<script src>`) são
+  suportadas. Entradas do Wappalyzer que só oferecem checagens `js`
+  (variável JavaScript global), `dom` (seletor de elemento) ou `css`
+  (estilo computado) exigem uma página realmente renderizada e são
+  ignoradas por completo — esta ferramenta nunca roda um navegador.
+  Isso significa que alguns sinais que só existem em runtime (parte do
+  gap de detecção do Next.js App Router, por exemplo) continuam sem
+  cobertura.
+- Tecnologias recém-detectadas cujo nome de exibição não bate com o
+  nome de produto no CPE da NVD (usado pelo `cve_correlation`) ainda
+  não correlacionam CVE — gap conhecido e não-quebrante, não é bug.
+
+Os dados do Wappalyzer têm licença CC BY-SA 4.0 dos seus
+contribuidores; a cópia vendorizada neste repositório é um espelho
+direto, sem modificações.
+
 ### Configurar a chave de API do NVD (opcional, recomendado)
 
 Sem chave, o limite de consulta ao NVD é de 5 requisições a cada 30
@@ -593,7 +633,7 @@ arquivo e importar em `app/modules/__init__.py`.
 | `subdomain_permutation` | 10 | não | Gera candidatos combinando um wordlist de nomes comuns de ambiente (dev, staging, admin, api, vpn...) com os subdomínios já descobertos |
 | `cloud_range` | 50 | não | Resolve cada host por DNS e verifica se o IP cai num range conhecido de AWS/GCP/Azure |
 | `httpx_probe` | 50 | **sim** | Visita cada host candidato via HTTP de verdade, confirma quais estão vivos, faz fingerprint básico via `httpx -tech-detect` |
-| `tech_fingerprint` | 50 | **sim** | Motor de 29 regras de fingerprint ativo — ver seção dedicada abaixo |
+| `tech_fingerprint` | 50 | **sim** | Detecção de tecnologias via Wappalyzer com sondas ativas — ver seção dedicada abaixo |
 | `whois` | 50 | não | Consulta os dados reais de registro do domínio |
 | `cve_correlation` | 90 | não | Correlaciona cada tecnologia com versão conhecida contra a API real do NVD |
 | `nuclei_validation` | 95 | **sim** | Roda templates do `nuclei` casados por ID de CVE contra achados de CVE `suspected` pra confirmar a exploitabilidade, excluindo templates com tags `dos`/`fuzz`/`intrusive` |
