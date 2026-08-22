@@ -3,11 +3,12 @@ import ipaddress
 import re
 import sys
 
+import requests
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from app import i18n, models, report_csv, report_data, report_pdf
+from app import fingerprint_update, i18n, models, report_csv, report_data, report_pdf
 from app.db import SessionLocal, ensure_schema
 from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
@@ -177,6 +178,18 @@ def history() -> None:
         console.print(table)
     finally:
         db.close()
+
+
+@app.command(name="update-fingerprints")
+def update_fingerprints() -> None:
+    try:
+        tech_count, cat_count = fingerprint_update.update_vendored_data()
+    except requests.RequestException as exc:
+        console.print(
+            f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('fingerprint_update_failed', error=str(exc))}"
+        )
+        raise typer.Exit(code=1)
+    console.print(i18n.t("fingerprint_update_saved", tech_count=tech_count, cat_count=cat_count))
 
 
 @app.command()

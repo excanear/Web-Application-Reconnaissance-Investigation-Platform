@@ -774,3 +774,31 @@ def test_report_pdf_format_defaults_to_report_scan_id_pdf_in_the_current_directo
 
     assert result.exit_code == 0
     assert os.path.exists(tmp_path / f"report_{scan_id}.pdf")
+
+
+def test_update_fingerprints_command_reports_success(monkeypatch):
+    from app import fingerprint_update
+
+    monkeypatch.setattr(fingerprint_update, "update_vendored_data", lambda: (3000, 50))
+
+    result = runner.invoke(app, ["update-fingerprints"])
+
+    assert result.exit_code == 0
+    assert "3000" in result.output
+    assert "50" in result.output
+
+
+def test_update_fingerprints_command_reports_a_network_failure(monkeypatch):
+    import requests as requests_lib
+
+    from app import fingerprint_update
+
+    def raise_error():
+        raise requests_lib.RequestException("down")
+
+    monkeypatch.setattr(fingerprint_update, "update_vendored_data", raise_error)
+
+    result = runner.invoke(app, ["update-fingerprints"])
+
+    assert result.exit_code == 1
+    assert "down" in result.output

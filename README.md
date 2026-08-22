@@ -392,6 +392,46 @@ Every `nuclei` invocation excludes `dos`, `fuzz`, and `intrusive`-tagged
 templates unconditionally — this is a hard-coded safety boundary, not a
 setting.
 
+### Update the technology fingerprint dataset
+
+`tech_fingerprint` detects technologies using a vendored copy of the
+[Wappalyzer](https://github.com/enthec/webappanalyzer) fingerprint
+dataset (thousands of technologies, community-maintained fork of the
+original Wappalyzer project) plus a small set of project-specific
+active path probes (currently just WordPress's `/CHANGELOG.txt`, for
+version precision beyond what a passive check offers).
+
+The vendored dataset (`backend/app/data/technologies.json`,
+`backend/app/data/categories.json`) ships in this repo but goes stale
+over time. Refresh it with:
+
+```
+recon update-fingerprints
+```
+
+This is a local maintenance operation — no target is touched, no
+`--authorized`/`--confirm-active` needed, the same posture as `nuclei
+-update-templates`. A network failure leaves the existing vendored
+files untouched.
+
+**Known limitations:**
+- Only technologies detectable from a single HTTP response
+  (headers/cookies/meta tags/HTML body/`<script src>` URLs) are
+  supported. Wappalyzer entries that only offer `js` (global JavaScript
+  variable), `dom` (element selector), or `css` (computed style) checks
+  require a real rendered page and are skipped entirely — this tool
+  never runs a browser. This means some runtime-only signals (part of
+  the Next.js App Router detection gap, for instance) still aren't
+  covered.
+- Newly-detected technologies whose display name doesn't match their
+  CPE product name in the NVD (used by `cve_correlation`) won't
+  correlate a CVE finding yet — this is a known, non-breaking gap, not
+  a bug.
+
+Wappalyzer's fingerprint data is licensed CC BY-SA 4.0 by its
+contributors; the vendored copy in this repo is a direct, unmodified
+mirror.
+
 ### Set up an NVD API key (optional, recommended)
 
 Without a key, the NVD query limit is 5 requests every 30 seconds. With a
@@ -594,7 +634,7 @@ create the file and import it in `app/modules/__init__.py`.
 | `subdomain_permutation` | 10 | no | Generates candidates by combining a wordlist of common environment names (dev, staging, admin, api, vpn...) with subdomains already discovered |
 | `cloud_range` | 50 | no | Resolves each host via DNS and checks whether the IP falls inside a known AWS/GCP/Azure range |
 | `httpx_probe` | 50 | **yes** | Visits each candidate host via real HTTP, confirms which are alive, does basic fingerprinting via `httpx -tech-detect` |
-| `tech_fingerprint` | 50 | **yes** | 29-rule active fingerprinting engine — see the dedicated section below |
+| `tech_fingerprint` | 50 | **yes** | Wappalyzer-driven technology detection with active path probes — see the dedicated section below |
 | `whois` | 50 | no | Queries the domain's real registration data |
 | `cve_correlation` | 90 | no | Correlates each technology with a known version against the real NVD API |
 | `nuclei_validation` | 95 | **yes** | Runs `nuclei` templates matched by CVE ID against `suspected` CVE findings to confirm exploitability, excluding `dos`/`fuzz`/`intrusive`-tagged templates |
@@ -605,21 +645,12 @@ just querying third-party services. Active modules require
 
 ## Technology fingerprinting
 
-`tech_fingerprint` runs 29 rules across 5 categories, each combining a
-signal type (`header`, `cookie`, `meta_generator`, `html_regex`,
-`path_probe`) with a regex that extracts the version when it's available:
-
-| Category | Technologies detected |
-|---|---|
-| Web server | nginx, Apache, Microsoft-IIS, Tomcat |
-| CDN / WAF | Cloudflare, Akamai, Varnish, AWS CloudFront, Fastly |
-| Backend | PHP, Java, ASP.NET, Express, Werkzeug/Flask, Ruby on Rails, Laravel, Django |
-| CMS | WordPress, Drupal, Joomla, Shopify |
-| Frontend | Angular, React, Vue.js, Next.js, jQuery, Bootstrap |
-
-The engine is a data table (`FINGERPRINT_RULES` in
-`app/modules/tech_fingerprint.py`) — adding a new technology means adding
-a table entry, without touching the engine's code.
+`tech_fingerprint` detects technologies using a vendored copy of the
+[Wappalyzer](https://github.com/enthec/webappanalyzer) fingerprint
+dataset (thousands of technologies, community-maintained) plus
+project-specific active path probes. See
+[Update the technology fingerprint dataset](#update-the-technology-fingerprint-dataset)
+above for how to refresh the dataset and its known limitations.
 
 Database fingerprinting is deliberately limited to indirect signals
 (cookies, headers, error messages already exposed) — direct detection via
