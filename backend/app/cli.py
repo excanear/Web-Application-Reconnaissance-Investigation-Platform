@@ -80,6 +80,12 @@ def scan(
         min=1,
         help="Process up to this many hosts concurrently within tech_fingerprint/cloud_range (default: fully sequential)",
     ),
+    max_subdomains: int = typer.Option(
+        1000,
+        "--max-subdomains",
+        min=1,
+        help="Cap on subdomain candidates accepted across all discovery modules combined (protects the rest of the scan from a noisy passive source)",
+    ),
     scope_include: list[str] = typer.Option(
         None, "--scope-include", help="Domain pattern or CIDR explicitly in scope (repeatable)"
     ),
@@ -159,6 +165,7 @@ def scan(
         rate_limit=max_requests_per_second,
         circuit_breaker_threshold=circuit_breaker_threshold,
         max_workers=max_workers,
+        max_subdomains=max_subdomains,
     )
 
     lang = i18n.current_lang()

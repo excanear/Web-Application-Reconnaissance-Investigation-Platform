@@ -12,7 +12,7 @@ para manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
-[![Testes](https://img.shields.io/badge/testes-281%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Testes](https://img.shields.io/badge/testes-285%20passando-2ea44f?style=for-the-badge)](#testes)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
@@ -694,6 +694,7 @@ webscan scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --
 | `--max-requests-per-second` | não | Limita o ritmo de requisições contra o alvo/subdomínios (padrão `5.0`) |
 | `--circuit-breaker-threshold` | não | Falhas consecutivas contra um alvo antes de um módulo parar de sondá-lo (padrão `5`) |
 | `--max-workers` | não | Processa até essa quantidade de hosts em paralelo dentro de `tech_fingerprint`/`cloud_range` (padrão `1` — totalmente sequencial, idêntico a qualquer scan anterior a essa flag) |
+| `--max-subdomains` | não | Teto de candidatos a subdomínio aceitos, somando `crtsh`+`subfinder`+`subdomain_permutation` juntos (padrão `1000`) |
 | `--scope-include` | não | Padrão de domínio ou CIDR explicitamente dentro do escopo (repetível, padrão `<alvo>` e `*.<alvo>`) |
 | `--scope-exclude` | não | Padrão de domínio ou CIDR explicitamente excluído (repetível) |
 | `--scope-window` | não | Janela de horário UTC permitida, ex. `09:00-18:00` (padrão: sempre permitido) |
@@ -732,6 +733,23 @@ fora de escopo que um módulo tocaria de outra forma é pulado e
 registrado como achado `out_of_scope`. Se restringir o escopo com
 `--scope-include` excluiria o próprio alvo, `scan` recusa criar o
 projeto por completo.
+
+`--max-subdomains` existe por um incidente real: uma fonte passiva do
+`subfinder` (não o módulo `crtsh` próprio deste projeto) retornou
+**24.739 "subdomínios"** para `example.com` em teste ao vivo — quase
+todo ruído de histórico de certificate transparency (nomes como
+`roberto163.example.com`, nunca infraestrutura real), não uma falha do
+`subfinder` em si. Sem limite, cada um desses vira uma linha no banco
+(um `INSERT`+`COMMIT` por achado) e é oferecido a todo módulo ativo
+downstream (`cloud_range`, `httpx_probe`, `tech_fingerprint`,
+`browser_fingerprint`) — o que derrubou um scan de verdade com erro de
+I/O do SQLite. O teto é compartilhado entre `crtsh` + `subfinder` +
+`subdomain_permutation` (o que vier primeiro na ordem de execução
+preenche o teto primeiro); ao ser atingido, um único achado
+`subdomain_discovery_capped` registra o limite usado e os candidatos
+restantes são descartados sem sondar. Reproduzido com a captura real de
+24.948 linhas do incidente: sem o teto, o scan travava; com ele, conclui
+em segundos com exatamente 1.000 subdomínios persistidos.
 
 ### Ver histórico
 
@@ -993,7 +1011,7 @@ cd backend
 pytest -v
 ```
 
-**281 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+**285 testes**, cobrindo cada módulo isoladamente (mockando chamadas
 externas, incluindo o Playwright do `browser_fingerprint` e o
 `msfconsole` do `msf_validation`), o orquestrador (isolamento de falha
 por módulo, ordenação por `run_order`, propagação de contexto,
@@ -1035,6 +1053,13 @@ depender da rede).
   equivalente às ~500 entradas de diferença, e esta ferramenta já
   consome 100% do maior dataset aberto disponível
   ([enthec/webappanalyzer](https://github.com/enthec/webappanalyzer)).
+- **`--max-subdomains` (padrão 1.000) é um corte cego, não um filtro de
+  qualidade** — ele existe pra proteger o scan de ruído de fontes
+  passivas (veja [Rodar um scan](#rodar-um-scan)), mas não distingue
+  ruído de infraestrutura real: um alvo legítimo com mais de 1.000
+  subdomínios reais tem o excedente descartado igual a um alvo ruidoso.
+  Suba o teto com `--max-subdomains` se souber que o alvo tem uma
+  superfície grande de verdade.
 
 ## Roadmap
 

@@ -170,6 +170,44 @@ def test_scan_forwards_custom_max_workers():
     assert mock_run_scan.call_args.kwargs["max_workers"] == 8
 
 
+def test_scan_defaults_max_subdomains_to_one_thousand():
+    with patch("app.cli.run_scan") as mock_run_scan:
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_run_scan.call_args.kwargs["max_subdomains"] == 1000
+
+
+def test_scan_forwards_custom_max_subdomains():
+    with patch("app.cli.run_scan") as mock_run_scan:
+        result = runner.invoke(
+            app,
+            [
+                "scan",
+                "example.com",
+                "--scope",
+                "authorized test scope",
+                "--authorized",
+                "--confirm-active",
+                "--max-subdomains",
+                "50",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert mock_run_scan.call_args.kwargs["max_subdomains"] == 50
+
+
 def test_history_lists_past_scans():
     db = SessionLocal()
     try:

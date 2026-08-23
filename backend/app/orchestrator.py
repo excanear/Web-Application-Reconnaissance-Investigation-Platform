@@ -10,6 +10,20 @@ from app.timeutil import utc_now
 DEFAULT_RATE_LIMIT = 5.0
 DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 DEFAULT_MAX_WORKERS = 1
+# A passive source (subfinder's own crtsh source, not this project's
+# separate crtsh module) can return an enormous, largely-noise result
+# set for a domain with a long certificate-transparency history --
+# example.com alone returned 24,739 "subdomains" during live testing,
+# most of them one-off names (e.g. "roberto163.example.com") that were
+# never live infrastructure. Every one of those was individually
+# persisted (one INSERT + COMMIT each) and then handed to every
+# downstream active module, which is what actually crashed a real scan
+# (SQLite disk I/O error under that many synchronous commits). This cap
+# protects both: at most this many subdomain candidates, combined
+# across every discovery module (crtsh/subfinder/subdomain_permutation),
+# are ever persisted or fed to cloud_range/httpx_probe/tech_fingerprint/
+# browser_fingerprint for one scan.
+DEFAULT_MAX_SUBDOMAINS = 1000
 
 
 def run_scan(
@@ -18,6 +32,7 @@ def run_scan(
     rate_limit: float = DEFAULT_RATE_LIMIT,
     circuit_breaker_threshold: int = DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
     max_workers: int = DEFAULT_MAX_WORKERS,
+    max_subdomains: int = DEFAULT_MAX_SUBDOMAINS,
 ) -> None:
     progress_callback = progress_callback or (lambda module_name: None)
     db = SessionLocal()
@@ -46,6 +61,8 @@ def run_scan(
         }
 
         recorded_out_of_scope_subdomains: set = set()
+        subdomains_persisted = 0
+        subdomain_cap_reached = False
 
         ordered_modules = sorted(MODULE_REGISTRY.values(), key=lambda cls: cls.run_order)
         for module_cls in ordered_modules:
@@ -69,6 +86,24 @@ def run_scan(
             _persist_audit_entries(db, scan_id, context["audit"])
             for finding in module_findings:
                 if finding.type == "subdomain":
+                    if subdomains_persisted >= max_subdomains:
+                        if not subdomain_cap_reached:
+                            _persist(
+                                db,
+                                scan_id,
+                                "orchestrator",
+                                Finding(
+                                    type="subdomain_discovery_capped",
+                                    value=target,
+                                    data={"limit": max_subdomains},
+                                ),
+                            )
+                            subdomain_cap_reached = True
+                        continue
+
+                    _persist(db, scan_id, module.name, finding)
+                    subdomains_persisted += 1
+
                     if is_in_scope(finding.value, None, context["scope"]):
                         context["subdomains"].add(finding.value)
                     else:
@@ -121,7 +156,12 @@ def _run_module(db, scan_id: int, module, target: str, context: dict) -> list:
         return []
 
     for finding in findings:
-        if finding.type != "cve_validation":
+        # "subdomain" findings are persisted by run_scan's own loop
+        # instead, which applies the max_subdomains cap first --
+        # persisting them here too would double-write every accepted one
+        # and defeat the cap for the rest. "cve_validation" is merged
+        # into its matching "cve" Finding, never persisted on its own.
+        if finding.type not in ("cve_validation", "subdomain"):
             _persist(db, scan_id, module.name, finding)
     return findings
 

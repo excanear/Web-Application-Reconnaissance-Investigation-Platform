@@ -339,6 +339,114 @@ def test_run_scan_filters_out_of_scope_subdomains_before_later_modules_see_them(
     assert seen_subdomains == [{"in-scope.example.com"}]
 
 
+def test_run_scan_caps_subdomain_candidates_and_records_one_finding_for_the_overflow():
+    # A noisy passive source (subfinder's own crtsh source returned
+    # 24,739 "subdomains" for example.com in live testing, mostly
+    # one-off certificate-transparency noise, not real infrastructure)
+    # must not flood the DB or every downstream active module.
+    class _NoisyDiscoveryModule(ReconModule):
+        name = "_test_noisy_discovery_module"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value=f"noisy{i}.example.com") for i in range(10)]
+
+    class _LateContextCapturingModule(ReconModule):
+        name = "_test_late_context_capturing_cap_module"
+        run_order = 90
+
+        def run(self, target, context):
+            return []
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_NoisyDiscoveryModule)
+        register_module(_LateContextCapturingModule)
+        with _mock_all_modules(
+            exclude={_NoisyDiscoveryModule.name, _LateContextCapturingModule.name}
+        ):
+            run_scan(scan_id, max_subdomains=3)
+    finally:
+        del MODULE_REGISTRY[_NoisyDiscoveryModule.name]
+        del MODULE_REGISTRY[_LateContextCapturingModule.name]
+
+    db = SessionLocal()
+    try:
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    subdomain_findings = [f for f in findings if f.type == "subdomain"]
+    cap_findings = [f for f in findings if f.type == "subdomain_discovery_capped"]
+    assert len(subdomain_findings) == 3
+    assert len(cap_findings) == 1
+    assert cap_findings[0].data["limit"] == 3
+
+
+def test_run_scan_subdomain_cap_is_shared_across_discovery_modules_and_stops_downstream_processing():
+    class _FirstDiscoveryModule(ReconModule):
+        name = "_test_first_discovery_module"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="a.example.com")]
+
+    class _SecondDiscoveryModule(ReconModule):
+        name = "_test_second_discovery_module"
+        run_order = 11
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="b.example.com")]
+
+    class _ContextCapturingModule(ReconModule):
+        name = "_test_context_capturing_module_for_cap"
+        run_order = 90
+        seen: set = set()
+
+        def run(self, target, context):
+            type(self).seen = set(context.get("subdomains", set()))
+            return []
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Cap Scope Co",
+            target="example.com",
+            scope_notes="a and b both in scope",
+            authorized=True,
+            scope={"include": ["example.com", "a.example.com", "b.example.com"], "exclude": []},
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_FirstDiscoveryModule)
+        register_module(_SecondDiscoveryModule)
+        register_module(_ContextCapturingModule)
+        with _mock_all_modules(
+            exclude={
+                _FirstDiscoveryModule.name,
+                _SecondDiscoveryModule.name,
+                _ContextCapturingModule.name,
+            }
+        ):
+            run_scan(scan_id, max_subdomains=1)
+    finally:
+        del MODULE_REGISTRY[_FirstDiscoveryModule.name]
+        del MODULE_REGISTRY[_SecondDiscoveryModule.name]
+        del MODULE_REGISTRY[_ContextCapturingModule.name]
+
+    # Only the first module's subdomain made it in before the (shared,
+    # cross-module) cap of 1 was reached.
+    assert _ContextCapturingModule.seen == {"a.example.com"}
+
+
 def test_run_scan_skips_a_module_entirely_when_the_scope_window_is_closed():
     called = []
 
