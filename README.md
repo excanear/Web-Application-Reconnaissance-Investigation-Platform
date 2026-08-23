@@ -116,7 +116,7 @@ isso que esta ferramenta existe.
 
 Saída real de um scan de verdade (`webscan scan artssystem.com.br
 --scope "..." --authorized --confirm-active`, sem edição — só
-resumida pra caber aqui; a tabela completa de CVEs tem 164 linhas):
+resumida pra caber aqui):
 
 ```text
 $ webscan scan artssystem.com.br --scope "pentest autorizado" --authorized --confirm-active
@@ -134,7 +134,7 @@ Running msf_validation...
 Running nmap_validation...
 Running tls_validation...
 
-Scan #20 - status: complete
+Scan #22 - status: complete
                                     Technologies
 ┌──────────────────────┬──────────────┬─────────┬────────────┬────────────────────┐
 │ Category              │ Name         │ Version │ Confidence │ Host                │
@@ -144,26 +144,24 @@ Scan #20 - status: complete
 │ javascript_libraries  │ jQuery       │ 3.6.0   │ high       │ central.artssyst... │
 │ javascript_libraries  │ jQuery UI    │ 1.13.2  │ high       │ central.artssyst... │
 │ ui_frameworks         │ Bootstrap    │ 5.3.3   │ high       │ artssystem.com.br   │
-│ web_frameworks        │ Laravel      │ -       │ medium     │ central.artssyst... │
+│ font_scripts          │ Font Awesome │ 5.10.0  │ high       │ artssystem.com.br   │
 │ ... +42 mais                                                                     │
 └──────────────────────┴──────────────┴─────────┴────────────┴────────────────────┘
 
-                                        CVEs
-┌────────────────┬──────────┬──────┬──────────────┬───────────┬─────────────────────┐
-│ CVE             │ Severity │ CVSS │ Technology   │ Status    │ Description         │
-├────────────────┼──────────┼──────┼──────────────┼───────────┼─────────────────────┤
-│ CVE-2026-27944  │ CRITICAL │ 9.8  │ Nginx 1.24.0 │ suspected │ ...                 │
-│ CVE-2018-9206   │ CRITICAL │ 9.8  │ jQuery 3.6.0 │ suspected │ ...                 │
-│ ... +162 mais (18 CRITICAL · 63 HIGH · 68 MEDIUM · 9 LOW)                          │
-└────────────────┴──────────┴──────┴──────────────┴───────────┴─────────────────────┘
+Nenhuma CVE correlacionada nesse scan — as 48 tecnologias detectadas,
+nessas versões exatas, não têm entrada correspondente na base de CPE da
+NVD no momento do scan. Sem tabela de CVEs pra mostrar, e é isso mesmo:
+ver "zero" quando é zero de verdade é o comportamento certo.
 ```
 
 **Números desse scan, do início ao fim, sem edição:** 48 tecnologias
-detectadas em 7 hosts confirmados vivos, 164 CVEs correlacionadas
-contra a API real da NVD, todas as 164 checadas pelos 4 motores de
-validação ativa (nenhum travou o circuit breaker), em 21 minutos —
-reproduzido duas vezes de forma idêntica. Veja
-[Correlação de CVE](#correlação-de-cve) pra entender cada coluna.
+detectadas em 3 hosts confirmados vivos (Nginx, PHP 8.3.0, jQuery
+3.6.0, Bootstrap 5.3.x, Font Awesome, entre outras), 0 CVEs
+correlacionadas, todos os 4 motores de validação ativa rodaram até o
+fim sem circuit breaker disparar (não havia nada suspeito pra validar).
+Veja [Correlação de CVE](#correlação-de-cve) pra entender cada coluna —
+inclusive a diferença entre a lógica de correlação atual e a de
+versões anteriores, que gerava falsos positivos nesse mesmo alvo.
 
 ---
 
@@ -274,9 +272,13 @@ pacote, checam quais ferramentas externas estão faltando (via
 ```
 
 Pode rodar de novo a qualquer momento — cada passo é idempotente (não
-reinstala o que já está instalado). Se preferir entender cada passo
-manualmente (ou algo no atalho não funcionar no seu ambiente), siga o
-tutorial completo abaixo.
+reinstala o que já está instalado). Internamente o script muda para
+`backend/` antes de ativar o `venv` e chamar `webscan` — importante
+porque o banco SQLite da ferramenta (`dev.db`) usa caminho relativo ao
+diretório atual, então tudo que passa por esse atalho lê/escreve
+sempre o mesmo banco em `backend/dev.db`, o mesmo que o tutorial manual
+abaixo usa. Se preferir entender cada passo manualmente (ou algo no
+atalho não funcionar no seu ambiente), siga o tutorial completo abaixo.
 
 ### Passo 0 — Abra o terminal certo
 
@@ -465,6 +467,29 @@ derruba a sessão. Ctrl+C cancela a linha atual sem fechar o shell.
 ---
 
 ## Problemas comuns
+
+<details>
+<summary><strong>Rodei um scan e o histórico/resultados parecem ter sumido, ou ferramentas que eu sei que estão instaladas aparecem como faltando</strong></summary>
+<br>
+
+O banco SQLite (`dev.db`) da ferramenta usa caminho relativo ao
+diretório atual — se você rodar `webscan` de uma pasta diferente da
+que usou da última vez (por exemplo, uma vez de dentro de `backend/` e
+outra vez da raiz do repositório), cada uma cria/lê um `dev.db`
+**diferente**, com histórico e IDs de scan próprios (você pode ver
+"Scan #2" mesmo já tendo rodado dezenas de scans antes, se for a
+segunda vez rodando naquela pasta específica). `webscan doctor`
+também reflete o `PATH` do processo que o rodou — sinais de ferramenta
+faltando reaparecem "do zero" nesse cenário mesmo já tendo instalado
+tudo antes numa pasta ou terminal diferente.
+
+Confirme sempre rodando `webscan` **de dentro de `backend/`** (veja o
+[Passo 3](#passo-3--entre-na-pasta-certa)) — é onde `dev.db` deveria
+morar e é o que o resto deste tutorial assume. Os scripts
+`start.ps1`/`start.sh` já fazem essa mudança de diretório
+automaticamente antes de chamar `webscan`.
+
+</details>
 
 <details>
 <summary><strong><code>ModuleNotFoundError: No module named 'app'</code></strong></summary>
@@ -1262,6 +1287,21 @@ como texto literal). A abordagem real:
 Validado ao vivo: `nginx 1.18.0` retorna corretamente **46 CVEs reais**
 contra a API de produção da NVD.
 
+O passo 2 compara o nome da tecnologia contra o campo **product** do
+CPE (não a string de criteria inteira, e não por substring) — as duas
+versões anteriores dessa lógica geraram falsos positivos reais e já
+corrigidos: primeiro casando contra o **vendor** do CPE (então
+"Apache", nosso nome pro servidor web, batia com qualquer produto da
+Apache Software Foundation — Log4j, Struts, etc.); depois, já
+comparando o produto certo mas por **substring**, "Nginx" batia com
+qualquer CPE cujo produto meramente contivesse "nginx" como pedaço do
+nome — `nginx_proxy_manager`, `nginx-ui`, `nginx_ingress_controller`,
+nenhum dos quais é o servidor web em si. Hoje exige igualdade exata do
+campo produto (com um mapa pontual de alias pra casos como
+`apache` → `http_server`). Efeito prático: um alvo real frequentemente
+mostra **menos CVEs suspeitas** do que antes dessa correção — isso é o
+esperado, não um regresso; os números antigos incluíam produtos errados.
+
 A coluna **Status** de cada CVE no relatório mostra `suspected` ou
 `confirmed`. `suspected` significa que a versão cai dentro da faixa de
 CPE da CVE segundo a NVD — resultado só da correlação estrutural.
@@ -1337,18 +1377,20 @@ cd backend
 pytest -v
 ```
 
-**315 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+**330 testes**, cobrindo cada módulo isoladamente (mockando chamadas
 externas, incluindo o Playwright do `browser_fingerprint`, o
 `msfconsole` do `msf_validation`, o `nmap` do `nmap_validation` e o
 `testssl.sh` do `tls_validation` — com fixtures baseadas em saída real
 capturada dos quatro binários), a base compartilhada dos validadores
 (`ActiveCveValidatorModule`), o orquestrador (isolamento de falha por
 módulo, ordenação por `run_order`, propagação de contexto, acumulação
-de `validated_by` quando mais de um validador confirma a mesma CVE),
-comportamento de rate limiting/circuit breaker sob concorrência real
-(múltiplas threads disputando os mesmos primitivos compartilhados), e a
-CLI (`typer.testing.CliRunner`, mockando o orquestrador para não
-depender da rede).
+de `validated_by` quando mais de um validador confirma a mesma CVE,
+achado `tool_missing` quando o preflight de ferramentas acusa
+problema), a detecção de ferramentas (`app/tool_check.py` — resolve o
+binário `httpx` correto mesmo com um executável de mesmo nome mas
+errado no `PATH`, usando binários falsos reais gravados em disco pelo
+teste, não só mocks), e a CLI (`typer.testing.CliRunner`, mockando o
+orquestrador para não depender da rede).
 
 ## Limitações conhecidas
 
@@ -1367,6 +1409,16 @@ depender da rede).
   os motores de cobertura ampla.
 - **Sem cache de CVE** — toda consulta à NVD é uma chamada de rede nova,
   mesmo repetindo o mesmo alvo/tecnologia entre scans.
+- **O comando `httpx` pode colidir com um pacote Python de mesmo nome**
+  em algumas instalações Windows (um cliente HTTP genérico, não
+  relacionado ao httpx do ProjectDiscovery que este projeto usa). A
+  ferramenta detecta e recusa esse binário errado automaticamente
+  (`app/tool_check.py`) e reporta o problema via `webscan doctor`/achado
+  `tool_missing` em vez de rodar a ferramenta errada silenciosamente —
+  mas se ambos aparecerem como "faltando", instale o real com
+  `go install github.com/projectdiscovery/httpx/cmd/httpx@latest` e
+  garanta que `$(go env GOPATH)/bin` vem antes da pasta `Scripts` do
+  Python no `PATH`.
 - **`subdomain_permutation` gera candidatos não confirmados** — eles
   aparecem como achado `subdomain` mesmo sem confirmação de que
   realmente respondem, a menos que o `httpx_probe` esteja instalado para
