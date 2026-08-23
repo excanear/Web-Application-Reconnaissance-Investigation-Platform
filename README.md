@@ -254,6 +254,30 @@ Escolha sua plataforma: [Windows (PowerShell)](#passo-0--abra-o-terminal-certo)
 é o mais detalhado, já que é onde mais gente trava; macOS/Linux acompanha
 em cada passo.
 
+### Atalho: um comando só, depois de clonar
+
+Se você já tem Python e (opcionalmente) Go instalados, os scripts
+`start.ps1` (Windows) e `start.sh` (macOS/Linux/WSL) na raiz do
+repositório fazem os Passos 2 a 6 por você: criam o `venv`, instalam o
+pacote, checam quais ferramentas externas estão faltando (via
+`webscan doctor`), oferecem instalar as que faltarem, e já abrem o
+[shell interativo](#modo-interativo-shell) no final.
+
+```powershell
+# Windows (PowerShell), de dentro da pasta do repositório
+.\start.ps1
+```
+
+```bash
+# macOS/Linux/WSL, de dentro da pasta do repositório
+./start.sh
+```
+
+Pode rodar de novo a qualquer momento — cada passo é idempotente (não
+reinstala o que já está instalado). Se preferir entender cada passo
+manualmente (ou algo no atalho não funcionar no seu ambiente), siga o
+tutorial completo abaixo.
+
 ### Passo 0 — Abra o terminal certo
 
 **Windows:** abra o **PowerShell** (não o "Prompt de Comando"/`cmd`).
@@ -643,6 +667,52 @@ quatro motores de validação ativa rodando juntos num scan real completo.
 No fim ele imprime um resumo do que ficou instalado. Se preferir
 instalar cada ferramenta manualmente (ou não estiver no Linux), siga as
 seções abaixo.
+
+### Windows: instalar tudo de uma vez (recomendado)
+
+Equivalente ao script acima, mas para Windows nativo: `subfinder`,
+`httpx`, `nuclei` (via `go install`), o pacote Python da ferramenta, o
+Chromium do Playwright, e `nmap` (via `winget`, se disponível).
+
+```powershell
+# de dentro de backend/, com o venv ativado
+.\scripts\install_all_windows.ps1
+```
+
+O Metasploit Framework e o `testssl.sh` **não têm um caminho de
+instalação nativa no Windows que valha a pena** (o instalador do
+Metasploit para Windows está descontinuado/sem manutenção upstream, e
+`testssl.sh` é um script bash) — para esses dois, rode
+`scripts/install_all_linux.sh` dentro do WSL.
+
+Depois de instalar (por aqui ou manualmente), rode `webscan doctor`
+para confirmar o que a ferramenta está realmente enxergando — veja a
+próxima seção.
+
+### Verificar o que está instalado: `webscan doctor`
+
+```powershell
+webscan doctor
+```
+
+Imprime uma tabela com cada ferramenta externa que os módulos podem
+usar (`subfinder`, `httpx`, `nuclei`, `msfconsole`, `nmap`,
+`testssl.sh`), se foi encontrada, e o caminho do binário (ou o motivo
+do problema). Sai com código de saída `1` se alguma estiver faltando ou
+incorretamente identificada — útil em scripts.
+
+Um caso real que esse comando existe para pegar: em algumas máquinas
+Windows, o comando `httpx` no `PATH` **não é** o `httpx` do
+ProjectDiscovery (usado para checar hosts vivos) — é a CLI de um pacote
+Python chamado `httpx` (biblioteca cliente HTTP), que por coincidência
+tem o mesmo nome de comando. Quando isso acontece, o módulo
+`httpx_probe` roda a ferramenta errada, que falha imediatamente — zero
+hosts vivos confirmados, e por consequência bem menos tecnologias e
+CVEs no relatório final, sem nenhum erro óbvio na tela (só um
+`module_error` enterrado nos achados). `webscan doctor` (e o próprio
+`httpx_probe`, que agora detecta e recusa esse binário errado
+automaticamente) existe justamente para pegar isso antes que o scan
+rode e o resultado pareça "misteriosamente" menor do que deveria.
 
 ### Instalar `subfinder` e `httpx` (opcional)
 
