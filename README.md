@@ -13,12 +13,14 @@ para manter no ar.
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
 [![Testes](https://img.shields.io/badge/testes-315%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Motores de CVE](https://img.shields.io/badge/valida%C3%A7%C3%A3o%20ativa-4%20motores-8250df?style=for-the-badge)](#correlação-de-cve)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
 <br>
 
 [Visão geral](#o-que-a-ferramenta-faz) ·
+[Veja em ação](#veja-em-ação) ·
 [Tutorial](#tutorial-do-zero-ao-primeiro-scan) ·
 [Comandos](#referência-de-comandos) ·
 [Arquitetura](#como-funciona-por-dentro) ·
@@ -40,13 +42,100 @@ para manter no ar.
 
 ## Sumário
 
+<details open>
+<summary><strong>Clique para recolher/expandir</strong></summary>
+
 | | | |
 |---|---|---|
-| [O que a ferramenta faz](#o-que-a-ferramenta-faz) | [Tutorial: do zero ao primeiro scan](#tutorial-do-zero-ao-primeiro-scan) | [Problemas comuns](#problemas-comuns) |
+| [O que a ferramenta faz](#o-que-a-ferramenta-faz) | [Por que não só usar nuclei + subfinder na mão?](#por-que-não-só-usar-nuclei--subfinder--msfconsole-na-mão) | [Veja em ação](#veja-em-ação) |
+| [Tutorial: do zero ao primeiro scan](#tutorial-do-zero-ao-primeiro-scan) | [Modo interativo (shell)](#modo-interativo-shell) | [Problemas comuns](#problemas-comuns) |
 | [Referência de comandos](#referência-de-comandos) | [Autorização e uso responsável](#autorização-e-uso-responsável) | [Como funciona por dentro](#como-funciona-por-dentro) |
 | [Catálogo de módulos](#catálogo-de-módulos) | [Fingerprint de tecnologias](#fingerprint-de-tecnologias) | [Correlação de CVE](#correlação-de-cve) |
 | [Configuração](#configuração) | [Dados e persistência](#dados-e-persistência) | [Trilha de auditoria](#trilha-de-auditoria) |
 | [Testes](#testes) | [Limitações conhecidas](#limitações-conhecidas) | [Roadmap](#roadmap) |
+
+</details>
+
+---
+
+## Por que não só usar nuclei + subfinder + msfconsole na mão?
+
+Dá, claro — e essa ferramenta literalmente usa essas mesmas ferramentas
+por baixo. A diferença não é "fazer algo que elas não fazem", é
+**orquestrar as sete/oito ferramentas certas na ordem certa, com o
+contexto de uma passando pra próxima**, e persistir tudo de um jeito
+que dá pra auditar depois — o que na prática ninguém mantém rodando na
+mão scan após scan.
+
+| | Rodando cada ferramenta na mão | Esta plataforma |
+|---|---|---|
+| Descobrir subdomínios | `subfinder -d alvo.com` num terminal, copiar a lista | Automático, já filtrado por escopo |
+| Saber a **versão exata** da tecnologia | Ler HTML/headers manualmente por host | Motor Wappalyzer completo (HTTP + navegador headless), 100% do dataset |
+| Achar CVEs pra essa versão | Buscar uma por uma no NVD, comparar CPE à mão | Correlação automática por faixa de CPE, todas as tecnologias |
+| Confirmar se a CVE é real, não só "a versão bate" | Rodar `nuclei -id CVE-X` uma CVE de cada vez, depois tentar de novo com Metasploit, depois lembrar de testar TLS separado | **4 motores** (`nuclei`, Metasploit, `nmap`, `testssl.sh`) rodam automaticamente, por CVE, com circuit breaker e sem repetir trabalho |
+| Não perder o controle do que foi tocado | Sem registro nenhum, ou um bloco de notas | Toda requisição de rede vira uma linha auditável (`webscan audit`) |
+| Reimprimir um resultado antigo sem escanear de novo | Torcer pra ter salvo o output do terminal | `webscan report <id>` — vem do banco, zero requisições novas |
+| Exportar pra um cliente/relatório | Copiar e formatar manualmente | PDF/CSV prontos, CVEs ordenadas por CVSS+EPSS |
+
+E o oposto também importa: esta ferramenta **não tenta reinventar**
+`nuclei`, Metasploit, `nmap` ou `testssl.sh` — ela os invoca do jeito
+certo, com os limites de segurança certos (`dos`/`fuzz`/`intrusive`
+sempre excluídos, escopo sempre verificado antes de qualquer requisição,
+`--authorized`/`--confirm-active` obrigatórios), e persiste o resultado
+de um jeito que sobrevive ao fechamento do terminal.
+
+## Veja em ação
+
+Saída real de um scan de verdade (`webscan scan artssystem.com.br
+--scope "..." --authorized --confirm-active`, sem edição — só
+resumida pra caber aqui; a tabela completa de CVEs tem 164 linhas):
+
+```text
+$ webscan scan artssystem.com.br --scope "pentest autorizado" --authorized --confirm-active
+Running crtsh...
+Running subfinder...
+Running subdomain_permutation...
+Running cloud_range...
+Running httpx_probe...
+Running tech_fingerprint...
+Running whois...
+Running browser_fingerprint...
+Running cve_correlation...
+Running nuclei_validation...
+Running msf_validation...
+Running nmap_validation...
+Running tls_validation...
+
+Scan #20 - status: complete
+                                    Technologies
+┌──────────────────────┬──────────────┬─────────┬────────────┬────────────────────┐
+│ Category              │ Name         │ Version │ Confidence │ Host                │
+├──────────────────────┼──────────────┼─────────┼────────────┼────────────────────┤
+│ web_servers           │ Nginx        │ 1.24.0  │ high       │ artssystem.com.br   │
+│ programming_languages │ PHP          │ 8.3.0   │ high       │ central.artssyst... │
+│ javascript_libraries  │ jQuery       │ 3.6.0   │ high       │ central.artssyst... │
+│ javascript_libraries  │ jQuery UI    │ 1.13.2  │ high       │ central.artssyst... │
+│ ui_frameworks         │ Bootstrap    │ 5.3.3   │ high       │ artssystem.com.br   │
+│ web_frameworks        │ Laravel      │ -       │ medium     │ central.artssyst... │
+│ ... +42 mais                                                                     │
+└──────────────────────┴──────────────┴─────────┴────────────┴────────────────────┘
+
+                                        CVEs
+┌────────────────┬──────────┬──────┬──────────────┬───────────┬─────────────────────┐
+│ CVE             │ Severity │ CVSS │ Technology   │ Status    │ Description         │
+├────────────────┼──────────┼──────┼──────────────┼───────────┼─────────────────────┤
+│ CVE-2026-27944  │ CRITICAL │ 9.8  │ Nginx 1.24.0 │ suspected │ ...                 │
+│ CVE-2018-9206   │ CRITICAL │ 9.8  │ jQuery 3.6.0 │ suspected │ ...                 │
+│ ... +162 mais (18 CRITICAL · 63 HIGH · 68 MEDIUM · 9 LOW)                          │
+└────────────────┴──────────┴──────┴──────────────┴───────────┴─────────────────────┘
+```
+
+**Números desse scan, do início ao fim, sem edição:** 48 tecnologias
+detectadas em 7 hosts confirmados vivos, 164 CVEs correlacionadas
+contra a API real da NVD, todas as 164 checadas pelos 4 motores de
+validação ativa (nenhum travou o circuit breaker), em 21 minutos —
+reproduzido duas vezes de forma idêntica. Veja
+[Correlação de CVE](#correlação-de-cve) pra entender cada coluna.
 
 ---
 
@@ -929,6 +1018,20 @@ Todo projeto grava seu `scope_notes` — a descrição de escopo que você
 forneceu — junto com os resultados, então o histórico de scans carrega o
 registro da autorização declarada.
 
+**Camadas de segurança, de fora pra dentro** — nenhuma delas é
+configurável pra "desligar", só pra ajustar o quão sensível é:
+
+| Camada | O que impede |
+|---|---|
+| `--authorized` / `--confirm-active` | Nenhum projeto é criado, nenhum pacote sai da máquina, sem confirmação explícita |
+| Escopo estruturado (`--scope-include`/`--scope-exclude`/`--scope-window`) | Um host fora do escopo declarado nunca é sondado, mesmo se descoberto — vira achado `out_of_scope` |
+| Exclusão fixa de tags `dos`/`fuzz`/`intrusive` no `nuclei` | Nenhum template destrutivo/instável roda, incondicionalmente |
+| Só scripts `nmap` categoria `safe` | `nmap_validation` nunca roda um script que precise disparar a falha de verdade pra confirmar |
+| `check` do Metasploit, nunca `exploit` | `msf_validation` só roda a ação de confirmação não-destrutiva do próprio módulo |
+| `--max-subdomains` | Uma fonte passiva ruidosa nunca inunda o scan nem o banco |
+| Circuit breaker por módulo | Um alvo que falha repetidamente para de ser sondado às cegas |
+| `--max-requests-per-second` | O ritmo de requisições contra o alvo é sempre limitado, nunca "o mais rápido possível" |
+
 ## Como funciona por dentro
 
 ```text
@@ -1187,7 +1290,13 @@ Progresso do roadmap enterprise-grade — **10 de 10 fases concluídas**:
 
 <div align="center">
 
+**[⬆ Voltar ao topo](#web-application-reconnaissance--investigation-platform)**
+
 Licenciado sob [MIT](LICENSE). Ferramenta ofensiva — use com
 responsabilidade e sempre com autorização explícita.
+
+Achou um bug, uma CVE sem template, ou quer sugerir uma quinta
+ferramenta de validação ativa? Abra uma
+[issue](https://github.com/excanear/Web-Application-Reconnaissance-Investigation-Platform/issues).
 
 </div>
