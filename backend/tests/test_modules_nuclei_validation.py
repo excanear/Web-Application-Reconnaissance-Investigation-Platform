@@ -6,8 +6,16 @@ from app.audit import AuditLog
 from app.modules.nuclei_validation import NucleiValidationModule
 
 
-def _fake_result(stdout="", returncode=0):
-    return MagicMock(stdout=stdout, returncode=returncode)
+def _fake_result(stdout="", returncode=0, stderr=""):
+    return MagicMock(stdout=stdout, returncode=returncode, stderr=stderr)
+
+
+# Real stderr text from nuclei 3.11.1 (verified live) when `-id <cve>`
+# matches no template in the community library -- happens for both a
+# real, well-known CVE with no nuclei template (CVE-2021-23017) and a
+# fully made-up CVE ID; the message and exit code (1) are identical
+# either way.
+NO_TEMPLATE_STDERR = "[FTL] Could not run nuclei: no templates provided for scan\n"
 
 
 def test_confirms_a_cve_when_nuclei_reports_a_match():
@@ -129,6 +137,65 @@ def test_records_an_error_to_the_audit_log_and_does_not_crash_on_unparseable_std
 
     assert findings == []
     assert audit.entries[0]["outcome"].startswith("error:")
+
+
+def test_stays_suspected_without_penalizing_the_circuit_breaker_when_no_template_exists():
+    # The real bug: nuclei exits 1 (a "failure" exit code) for the
+    # routine, expected case of a CVE with no matching community
+    # template -- most CVEs never get one written. Treating that as a
+    # circuit-breaker failure meant a run of un-templated CVEs could
+    # exhaust the breaker before ever reaching one nuclei could actually
+    # check, silently killing validation for a whole scan.
+    context = {"cve_findings": [{"cve_id": "CVE-2021-23017", "host": "tech.example.com"}]}
+    audit = AuditLog()
+    context["audit"] = audit
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(returncode=1, stderr=NO_TEMPLATE_STDERR),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    assert findings == []
+    assert audit.entries[0]["outcome"] == "no_template"
+
+
+def test_many_untemplated_cves_never_trip_the_circuit_breaker():
+    context = {
+        "cve_findings": [
+            {"cve_id": f"CVE-2021-{i}", "host": "tech.example.com"} for i in range(10)
+        ],
+        "circuit_breaker_threshold": 2,
+    }
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(returncode=1, stderr=NO_TEMPLATE_STDERR),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    assert findings == []  # all 10 attempted, none tripped the breaker
+
+
+def test_a_genuine_nuclei_error_still_counts_against_the_circuit_breaker():
+    # Only the specific "no templates provided for scan" message is
+    # exempted -- a real execution failure (bad flags, crashed template,
+    # unexpected exit) must still protect the rest of the scan.
+    context = {
+        "cve_findings": [
+            {"cve_id": f"CVE-2021-{i}", "host": "tech.example.com"} for i in range(5)
+        ],
+        "circuit_breaker_threshold": 2,
+    }
+
+    with patch(
+        "app.modules.nuclei_validation.subprocess.run",
+        return_value=_fake_result(returncode=1, stderr="[FTL] some other fatal error\n"),
+    ):
+        findings = NucleiValidationModule().run("example.com", context)
+
+    tripped = [f for f in findings if f.type == "circuit_breaker_tripped"]
+    assert len(tripped) == 1
 
 
 def test_circuit_breaker_trips_after_threshold_consecutive_check_failures():

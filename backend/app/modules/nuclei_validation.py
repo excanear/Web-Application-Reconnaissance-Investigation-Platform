@@ -16,6 +16,13 @@ DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 # --authorized/--confirm-active, not a tunable rate limit.
 EXCLUDED_TAGS = "dos,fuzz,intrusive"
 REQUEST_TIMEOUT = 120
+# nuclei's own message (stderr, exit code 1) when `-id <cve>` matches no
+# template in the community library -- verified live: most CVEs never
+# get a nuclei template written for them (nuclei skews toward
+# HTTP-detectable web-app vulns, not e.g. memory-safety bugs), so this
+# is the routine, expected outcome for a large fraction of CVEs, not a
+# tool failure. It must never count against the circuit breaker.
+NO_TEMPLATE_MARKER = "no templates provided for scan"
 
 
 @register_module
@@ -111,6 +118,10 @@ class NucleiValidationModule(ReconModule):
             return None, False
 
         if result.returncode != 0 and not matches:
+            if NO_TEMPLATE_MARKER in result.stderr:
+                if audit is not None:
+                    audit.record(module=self.name, target=target_label, outcome="no_template", url=url)
+                return None, True
             if audit is not None:
                 audit.record(
                     module=self.name,

@@ -12,7 +12,7 @@ para manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
-[![Testes](https://img.shields.io/badge/testes-290%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Testes](https://img.shields.io/badge/testes-293%20passando-2ea44f?style=for-the-badge)](#testes)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
@@ -551,6 +551,19 @@ scan não é afetado.
 3. Rode `nuclei -update-templates` periodicamente para pegar templates
    de CVEs recém-divulgadas.
 
+> [!NOTE]
+> A maioria das CVEs **não tem** template comunitário no `nuclei` — o
+> `nuclei` cobre majoritariamente vulnerabilidades detectáveis via HTTP,
+> não falhas de memória em binários, por exemplo. Quando isso acontece,
+> o `nuclei` sai com código de erro 1 e a mensagem
+> `no templates provided for scan` — esse é o comportamento **esperado**
+> pra uma CVE sem template, não uma falha da checagem, e o
+> `nuclei_validation` já trata isso como tal (não conta contra o
+> circuit breaker). Validado ao vivo: das 164 CVEs suspeitas de um scan
+> real, 158 não tinham template (`no_template`) e as 6 restantes
+> rodaram de verdade (`no_match`) — todas as 164 foram tentadas, nenhuma
+> travou o circuit breaker.
+
 Toda invocação do `nuclei` exclui templates com tag `dos`, `fuzz` e
 `intrusive` incondicionalmente — é um limite de segurança fixo no
 código, não uma configuração.
@@ -1026,7 +1039,7 @@ cd backend
 pytest -v
 ```
 
-**290 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+**293 testes**, cobrindo cada módulo isoladamente (mockando chamadas
 externas, incluindo o Playwright do `browser_fingerprint` e o
 `msfconsole` do `msf_validation`), o orquestrador (isolamento de falha
 por módulo, ordenação por `run_order`, propagação de contexto,
