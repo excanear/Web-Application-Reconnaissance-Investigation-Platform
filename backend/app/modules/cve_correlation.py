@@ -66,7 +66,7 @@ def _cve_matches_version(cve: dict, name: str, version: str) -> bool:
                 # product field specifically, not the whole criteria string,
                 # so a shared vendor never causes a false match on its own.
                 product = parts[4].lower().replace("-", "").replace("_", "") if len(parts) > 4 else ""
-                if needle not in product:
+                if product != needle:
                     continue
 
                 start_inc = match.get("versionStartIncluding")

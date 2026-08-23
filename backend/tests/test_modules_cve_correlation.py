@@ -156,6 +156,33 @@ def test_still_matches_apache_http_server_itself_via_the_product_alias(monkeypat
     assert findings[0].value == "CVE-2019-10092"
 
 
+def test_excludes_a_different_product_whose_cpe_slug_merely_contains_the_name(monkeypatch):
+    # Regression test for a real false positive found on a live scan:
+    # CVE-2019-15517 is about "Nginx Proxy Manager" (a third-party admin
+    # panel), cpe:2.3:a:jc21:nginx_proxy_manager:* -- confirmed against
+    # the real NVD API. The old matching used `needle in product`
+    # (substring), so fingerprinted "Nginx" (the actual web server)
+    # matched it too, since "nginx" is a substring of the stripped
+    # product "nginxproxymanager". Product identity must be exact, not
+    # "contains", or every "X Manager"/"X UI"/"X Ingress Controller"
+    # product sharing a name fragment shows up as a false "suspected" CVE.
+    monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", None)
+    monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
+
+    context = {"technologies": [{"name": "Nginx", "version": "1.24.0", "host": "example.com"}]}
+    nginx_proxy_manager_match = {
+        "vulnerable": True,
+        "criteria": "cpe:2.3:a:jc21:nginx_proxy_manager:*:*:*:*:*:*:*:*",
+        "versionEndExcluding": "2.0.13",
+    }
+    payload = _nvd_response(_cve("CVE-2019-15517", [nginx_proxy_manager_match]))
+
+    with patch("app.modules.cve_correlation.requests.get", return_value=_mock_response(payload)):
+        findings = CveCorrelationModule().run("example.com", context)
+
+    assert findings == []
+
+
 def test_sends_api_key_header_when_configured(monkeypatch):
     monkeypatch.setattr(cve_correlation.settings, "nvd_api_key", "test-key-123")
     monkeypatch.setattr(cve_correlation.time, "sleep", lambda *_: None)
