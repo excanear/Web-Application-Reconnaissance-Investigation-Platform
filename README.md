@@ -84,6 +84,34 @@ sempre excluídos, escopo sempre verificado antes de qualquer requisição,
 `--authorized`/`--confirm-active` obrigatórios), e persiste o resultado
 de um jeito que sobrevive ao fechamento do terminal.
 
+### E contra ferramentas comerciais?
+
+Comparação honesta — esta ferramenta **não** substitui um scanner
+enterprise de gestão de vulnerabilidade nem um proxy de teste manual.
+O que ela é: um orquestrador gratuito, de código aberto, CLI-first, pra
+quem já usa `nuclei`/Metasploit/`nmap`/`testssl.sh` separadamente e
+quer o fluxo completo — descoberta → fingerprint → correlação → 4
+confirmações ativas — automatizado, auditável e sem licença.
+
+| | Esta ferramenta | Burp Suite Pro | Nessus / Tenable | Qualys VMDR |
+|---|:---:|:---:|:---:|:---:|
+| Preço | **Grátis** (MIT) | ~US$449/ano por usuário | ~US$3.000+/ano | Cotação, tipicamente enterprise |
+| Infraestrutura | Um processo, SQLite local | App desktop | Scanner dedicado (VM/appliance) | SaaS gerenciado |
+| Correlação de CVE por CPE contra a NVD real | ✅ | Não é o foco | ✅ (banco próprio) | ✅ (banco próprio) |
+| Confirmação ativa multi-motor por CVE | ✅ 4 motores independentes | Scanner ativo próprio | Plugins próprios | Plugins próprios |
+| Fingerprint via navegador headless | ✅ (Chromium) | ✅ (é o próprio proxy) | Limitado | Limitado |
+| Trilha de auditoria por requisição de rede | ✅ | Parcial (histórico do proxy) | ✅ | ✅ |
+| Teste manual interativo (interceptar/repetir requisição) | ❌ — não é o foco | ✅ — é o foco | ❌ | ❌ |
+| Gestão de ativos/compliance em escala corporativa | ❌ | ❌ | Parcial | ✅ — é o foco |
+| Código aberto, auditável | ✅ | ❌ | ❌ | ❌ |
+
+Se o seu trabalho é interceptar e manipular requisição por requisição à
+mão, você quer o Burp. Se é gerenciar milhares de ativos com relatório
+de compliance pra auditoria, você quer Nessus/Qualys. Se é automatizar
+"descobri um alvo, quero saber a stack exata e quais CVEs reais batem,
+confirmadas por mais de uma ferramenta, sem clicar em nada" — é pra
+isso que esta ferramenta existe.
+
 ## Veja em ação
 
 Saída real de um scan de verdade (`webscan scan artssystem.com.br
@@ -1031,6 +1059,49 @@ configurável pra "desligar", só pra ajustar o quão sensível é:
 | `--max-subdomains` | Uma fonte passiva ruidosa nunca inunda o scan nem o banco |
 | Circuit breaker por módulo | Um alvo que falha repetidamente para de ser sondado às cegas |
 | `--max-requests-per-second` | O ritmo de requisições contra o alvo é sempre limitado, nunca "o mais rápido possível" |
+
+**O escopo é imposto em duas camadas independentes**, não só declarado
+uma vez no início: o orquestrador filtra candidatos de subdomínio antes
+de alimentar qualquer módulo ativo, e cada módulo ativo checa o escopo
+de novo por conta própria antes de enviar uma requisição — defesa em
+profundidade, não um único ponto de falha.
+
+```mermaid
+sequenceDiagram
+    participant Op as Operador
+    participant CLI as CLI (scan)
+    participant Orc as orchestrator.run_scan
+    participant Disc as Módulo de descoberta<br/>(ex. subfinder)
+    participant Scope as is_in_scope()
+    participant Act as Módulo ativo<br/>(ex. tech_fingerprint)
+    participant Aud as AuditLog
+    participant Tgt as Alvo real
+
+    Op->>CLI: scan alvo.com --scope "..." --authorized --confirm-active
+    CLI->>CLI: --authorized ausente?
+    CLI->>CLI: módulo ativo registrado e --confirm-active ausente?
+    alt falta alguma confirmação
+        CLI-->>Op: Error — nenhum Project criado, nenhuma requisição sai
+    end
+    CLI->>Orc: run_scan(scan_id)
+    Orc->>Disc: module.run(target, context)
+    Disc-->>Orc: Finding(subdomain, "sub.alvo.com")
+    Orc->>Scope: is_in_scope("sub.alvo.com", scope)
+    alt fora do escopo declarado
+        Scope-->>Orc: False
+        Orc->>Orc: Finding(out_of_scope) — nunca entra em context["subdomains"]
+        Note over Tgt: este host NUNCA é tocado
+    else dentro do escopo
+        Scope-->>Orc: True
+        Orc->>Orc: context["subdomains"].add("sub.alvo.com")
+    end
+    Orc->>Act: module.run(target, context)
+    Act->>Scope: is_in_scope() de novo — checagem própria do módulo
+    Act->>Tgt: requisição HTTP real
+    Tgt-->>Act: resposta
+    Act->>Aud: audit.record(module, host, outcome, url)
+    Act-->>Orc: Finding(technology / cve_validation / ...)
+```
 
 ## Como funciona por dentro
 
