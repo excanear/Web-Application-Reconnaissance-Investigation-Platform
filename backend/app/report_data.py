@@ -56,19 +56,25 @@ def _resolve_remediation(data: dict, technology: str, lang: str) -> str:
     return i18n.t("remediation_generic", lang=lang, technology=technology)
 
 
+# Each active validator writes its confirmation note under its own
+# key prefix (nuclei_validation uses the bare "confirmation_note_*" for
+# historical/backward-compat reasons; every validator added since uses
+# "<tool>_confirmation_note_*") so that when more than one tool confirms
+# the same CVE, a later validator's merge (see
+# orchestrator._apply_cve_validation) never overwrites an earlier one's
+# evidence -- every confirming tool's note survives into the report.
+_EVIDENCE_NOTE_PREFIXES = ("", "msf_", "nmap_", "tls_")
+
+
 def _resolve_evidence(data: dict, lang: str) -> str:
     """Joins the confirmation evidence from every validator that
-    confirmed this CVE (nuclei_validation writes confirmation_note_*,
-    msf_validation writes msf_confirmation_note_*) -- a CVE confirmed by
-    more than one tool keeps every tool's note instead of only the last
-    validator to run."""
+    confirmed this CVE -- a CVE confirmed by more than one tool keeps
+    every tool's note instead of only the last validator to run."""
     notes = []
-    nuclei_note = data.get(f"confirmation_note_{lang}") or data.get("confirmation_note_en")
-    if nuclei_note:
-        notes.append(nuclei_note)
-    msf_note = data.get(f"msf_confirmation_note_{lang}") or data.get("msf_confirmation_note_en")
-    if msf_note:
-        notes.append(msf_note)
+    for prefix in _EVIDENCE_NOTE_PREFIXES:
+        note = data.get(f"{prefix}confirmation_note_{lang}") or data.get(f"{prefix}confirmation_note_en")
+        if note:
+            notes.append(note)
     return " | ".join(notes) if notes else "-"
 
 

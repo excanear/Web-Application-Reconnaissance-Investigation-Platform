@@ -13,4 +13,6 @@ from app.modules import (  # noqa: F401
     cve_correlation,
     nuclei_validation,
     msf_validation,
+    nmap_validation,
+    tls_validation,
 )

@@ -2,7 +2,8 @@
 # One-shot installer for everything this tool can use on Linux:
 # Go (if missing), subfinder, httpx, nuclei, the Python package itself
 # (editable, inside whatever venv is active), the Playwright Chromium
-# browser + its OS libraries, and the Metasploit Framework.
+# browser + its OS libraries, the Metasploit Framework, nmap, and
+# testssl.sh.
 #
 # Every tool here is OPTIONAL at the module level -- a missing one just
 # means that specific module reports a module_error and the rest of the
@@ -42,8 +43,11 @@ echo "  - subfinder, httpx, nuclei (via 'go install', user-level, no root)"
 echo "  - this project's Python package + dependencies (pip install -e ., in the active venv)"
 echo "  - Playwright's Chromium + required OS libraries (playwright install --with-deps chromium)"
 echo "  - the Metasploit Framework (Rapid7's official apt-repo installer)"
+echo "  - nmap (via apt)"
+echo "  - testssl.sh (git clone + a symlink into /usr/local/bin)"
 echo
-echo "Go/Playwright/Metasploit steps need sudo (apt); you'll be prompted if needed."
+echo "Go/Playwright/Metasploit/nmap/testssl.sh steps need sudo (apt or"
+echo "writing to /usr/local/bin); you'll be prompted if needed."
 echo
 
 # --- Go + Go-based tools ----------------------------------------------
@@ -129,9 +133,32 @@ else
   rm -f "$MSF_INSTALLER"
 fi
 
+# --- nmap (for nmap_validation) ------------------------------------------
+
+if command -v nmap >/dev/null 2>&1; then
+  log "nmap already installed, skipping."
+else
+  log "Installing nmap..."
+  $SUDO apt-get update -qq
+  $SUDO apt-get install -y -qq nmap
+fi
+
+# --- testssl.sh (for tls_validation) --------------------------------------
+
+if command -v testssl.sh >/dev/null 2>&1; then
+  log "testssl.sh already installed, skipping."
+else
+  log "Installing testssl.sh (git clone + symlink into /usr/local/bin)..."
+  TESTSSL_DIR="${TESTSSL_INSTALL_DIR:-/opt/testssl}"
+  if [ ! -d "$TESTSSL_DIR" ]; then
+    $SUDO git clone --depth 1 https://github.com/drwetter/testssl.sh.git "$TESTSSL_DIR"
+  fi
+  $SUDO ln -sf "$TESTSSL_DIR/testssl.sh" /usr/local/bin/testssl.sh
+fi
+
 echo
 log "Done. Summary:"
-for tool in subfinder httpx nuclei msfconsole; do
+for tool in subfinder httpx nuclei msfconsole nmap testssl.sh; do
   if command -v "$tool" >/dev/null 2>&1; then
     echo "  [ok] $tool"
   else

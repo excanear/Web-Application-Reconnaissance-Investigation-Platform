@@ -12,7 +12,7 @@ para manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
-[![Testes](https://img.shields.io/badge/testes-293%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Testes](https://img.shields.io/badge/testes-315%20passando-2ea44f?style=for-the-badge)](#testes)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
@@ -71,9 +71,10 @@ verificação estrutural de que aquela versão específica realmente cai
 dentro da faixa vulnerável da CVE.
 
 **4. Valida ativamente** um subconjunto das CVEs correlacionadas com
-**dois motores independentes** — templates comunitários do `nuclei` e a
-ação `check` do Metasploit Framework — promovendo o status de
-`suspected` para `confirmed` assim que qualquer um dos dois reproduz a
+**quatro motores independentes** — templates comunitários do `nuclei`,
+a ação `check` do Metasploit Framework, scripts NSE curados do `nmap`,
+e checagens de protocolo TLS/SSL via `testssl.sh` — promovendo o status
+de `suspected` para `confirmed` assim que qualquer um deles reproduz a
 exploração de forma segura.
 
 **5. Imprime um relatório** no terminal, agrupado por Tecnologias, CVEs
@@ -100,11 +101,13 @@ flowchart LR
     K --> L["`**cve_correlation**
     NVD real, por CPE`"]
     L --> M{"`Validação ativa
-    _run_order 95/96_`"}
+    _run_order 95-98_`"}
     M --> N["`**nuclei_validation**
     templates por ID de CVE`"] & N2["`**msf_validation**
-    check do Metasploit`"]
-    N & N2 --> O[("`SQLite
+    check do Metasploit`"] & N3["`**nmap_validation**
+    scripts NSE curados`"] & N4["`**tls_validation**
+    testssl.sh`"]
+    N & N2 & N3 & N4 --> O[("`SQLite
     local`")]
     O --> P["`Relatório
     terminal · CSV · PDF`"]
@@ -115,6 +118,8 @@ flowchart LR
     style L fill:#1f6f63,stroke:#0f3f38,color:#fff
     style N fill:#1f6f63,stroke:#0f3f38,color:#fff
     style N2 fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style N3 fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style N4 fill:#1f6f63,stroke:#0f3f38,color:#fff
     style O fill:#2b2b2b,stroke:#000,color:#fff
     style P fill:#2b2b2b,stroke:#000,color:#fff
 ```
@@ -496,9 +501,9 @@ resultado de `python --version`.
 
 Se você está no Linux, esse é o jeito mais rápido de ter a ferramenta
 100% funcional — todas as ferramentas opcionais abaixo (`subfinder`,
-`httpx`, `nuclei`, Chromium do Playwright, Metasploit Framework) de
-uma vez só, num único script idempotente (rodar de novo só pula o que
-já está instalado):
+`httpx`, `nuclei`, Chromium do Playwright, Metasploit Framework, `nmap`,
+`testssl.sh`) de uma vez só, num único script idempotente (rodar de
+novo só pula o que já está instalado):
 
 ```bash
 # de dentro de backend/, com o venv ativado
@@ -508,13 +513,15 @@ já está instalado):
 Ele instala Go via `apt` se faltar, compila `subfinder`/`httpx`/`nuclei`
 via `go install`, instala o pacote Python da ferramenta
 (`pip install -e .`), baixa o Chromium do Playwright com as bibliotecas
-de sistema (`playwright install --with-deps`), e instala o Metasploit
-Framework pelo instalador oficial da Rapid7 — pedindo sua senha de
-`sudo` quando precisar (só pros passos que mexem em pacotes do
-sistema). Tudo real e testado de ponta a ponta contra um Ubuntu limpo:
-Go/build-essential/libpcap-dev via `apt`, os três binários Go, Chromium
-rodando um scan de verdade, e o Metasploit confirmando/descartando CVEs
-reais via `search cve:` + `check`.
+de sistema (`playwright install --with-deps`), instala o Metasploit
+Framework pelo instalador oficial da Rapid7, o `nmap` via `apt`, e o
+`testssl.sh` via `git clone` — pedindo sua senha de `sudo` quando
+precisar (só pros passos que mexem em pacotes do sistema ou
+`/usr/local/bin`). Tudo real e testado de ponta a ponta contra um
+Ubuntu limpo: Go/build-essential/libpcap-dev via `apt`, os três
+binários Go, Chromium rodando um scan de verdade, o Metasploit
+confirmando/descartando CVEs reais via `search cve:` + `check`, e os
+quatro motores de validação ativa rodando juntos num scan real completo.
 
 No fim ele imprime um resumo do que ficou instalado. Se preferir
 instalar cada ferramenta manualmente (ou não estiver no Linux), siga as
@@ -592,6 +599,42 @@ com o `nuclei` — nenhum dos dois módulos depende do outro.
 
 Como o `nuclei`, o Metasploit não é vendorizado — é uma instalação
 separada do operador, e sua ausência nunca derruba o scan.
+
+### Instalar `nmap` (opcional, terceiro validador ativo de CVE)
+
+`nmap_validation` roda os próprios scripts NSE do `nmap` — não
+templates de terceiros — pra um conjunto **curado e deliberadamente
+pequeno** de CVEs bem conhecidas (Heartbleed, POODLE, e alguns outros
+de HTTP): só os scripts cuja categoria (`categories` do próprio script,
+verificado no `nmap` 7.98 vendorizado) inclui `safe` e exclui
+`intrusive`/`exploit` — a mesma régua de segurança que o `nuclei` já
+aplica excluindo tags `dos`/`fuzz`/`intrusive`. O `nmap` tem dezenas de
+outros scripts CVE-específicos (Struts2, Drupal, PHP-CGI...) que exigem
+disparar a falha de verdade pra confirmar — esses ficam de fora por
+design, não por esquecimento.
+
+1. Instale o `nmap`: https://nmap.org/download.html
+2. Confirme que está no PATH: `nmap --version`
+
+Sem o `nmap` instalado, esse módulo registra um único achado
+`module_error` e a validação segue com os outros motores.
+
+### Instalar `testssl.sh` (opcional, quarto validador ativo de CVE)
+
+`tls_validation` cobre uma categoria que nenhum dos outros três motores
+alcança: CVEs de protocolo TLS/SSL (Heartbleed, POODLE, DROWN, FREAK,
+LOGJAM, CRIME, BREACH, SWEET32, BEAST, CCS injection), usando o
+[testssl.sh](https://testssl.sh/) — cada checagem tem sua própria flag
+dedicada (`--heartbleed`, `--poodle`, etc.), sem depender do scan
+completo `-U`.
+
+```bash
+git clone --depth 1 https://github.com/drwetter/testssl.sh.git
+sudo ln -s "$(pwd)/testssl.sh/testssl.sh" /usr/local/bin/testssl.sh
+```
+
+Sem o `testssl.sh` instalado, esse módulo registra um único achado
+`module_error` e a validação segue com os outros três motores.
 
 ### Atualizar o dataset de fingerprint de tecnologias
 
@@ -898,6 +941,8 @@ webscan scan → cria Project + Scan (SQLite)
                      90  correlação     (cve_correlation)
                      95  validação      (nuclei_validation)
                      96  validação      (msf_validation)
+                     97  validação      (nmap_validation)
+                     98  validação      (tls_validation)
                 → cada módulo recebe (target, context) e devolve Finding[]
                 → context["subdomains"] e context["technologies"] acumulam
                   conforme os módulos rodam, alimentando os próximos
@@ -927,6 +972,8 @@ arquivo e importá-lo em `app/modules/__init__.py`.
 | `cve_correlation` | 90 | — | Correlaciona cada tecnologia com versão conhecida contra a API real da NVD |
 | `nuclei_validation` | 95 | **sim** | Roda templates `nuclei` casados por ID de CVE contra achados `suspected`, excluindo templates com tag `dos`/`fuzz`/`intrusive` |
 | `msf_validation` | 96 | **sim** | Busca um módulo do Metasploit por CVE (`search cve:<id>`) e roda sua ação `check` contra o host — segundo motor de confirmação, independente do `nuclei` |
+| `nmap_validation` | 97 | **sim** | Roda o script NSE próprio do `nmap` pra um conjunto curado de CVEs conhecidas (Heartbleed, POODLE, alguns HTTP) — só scripts com categoria `safe` |
+| `tls_validation` | 98 | **sim** | Roda o `testssl.sh` pra CVEs de protocolo TLS/SSL (Heartbleed, POODLE, DROWN, FREAK, LOGJAM, CRIME, BREACH, SWEET32, BEAST, CCS injection) |
 
 "Ativo" = envia requisições diretamente contra o alvo/subdomínios, além
 de só consultar serviços de terceiros. Módulos ativos exigem
@@ -974,17 +1021,24 @@ contra a API de produção da NVD.
 A coluna **Status** de cada CVE no relatório mostra `suspected` ou
 `confirmed`. `suspected` significa que a versão cai dentro da faixa de
 CPE da CVE segundo a NVD — resultado só da correlação estrutural.
-`confirmed` significa que **pelo menos um** dos dois motores de
-validação ativa — `nuclei_validation` (template comunitário casado por
-ID de CVE) ou `msf_validation` (ação `check` de um módulo do Metasploit
-para a mesma CVE) — reportou um resultado positivo contra o alvo,
+`confirmed` significa que **pelo menos um** dos quatro motores de
+validação ativa reportou um resultado positivo contra o alvo,
 confirmando que a vulnerabilidade pode realmente ser reproduzida via uma
-checagem segura (sem exploração, só detecção). Os dois motores rodam de
-forma independente e aditiva: se ambos confirmarem a mesma CVE, o campo
-`validated_by` do achado lista as duas ferramentas
-(`["nuclei", "metasploit"]`), e a coluna **Evidence** do relatório junta
-a evidência de cada uma — o ID do template `nuclei` que bateu, e/ou o
-módulo do Metasploit cujo `check` confirmou.
+checagem segura (sem exploração, só detecção):
+
+- `nuclei_validation` — template comunitário `nuclei` casado por ID de CVE
+- `msf_validation` — ação `check` de um módulo do Metasploit pra mesma CVE
+- `nmap_validation` — script NSE próprio do `nmap`, conjunto curado de CVEs conhecidas
+- `tls_validation` — checagem do `testssl.sh`, CVEs de protocolo TLS/SSL
+
+Os quatro rodam de forma independente e aditiva, todos implementando o
+mesmo contrato (`ActiveCveValidatorModule` em
+`app/modules/cve_validator_base.py`, que trata do loop por CVE, filtro
+de escopo e circuit breaker de forma idêntica pros quatro — só a lógica
+específica de cada ferramenta muda). Se mais de um confirmar a mesma
+CVE, o campo `validated_by` do achado lista todas as ferramentas
+(`["nuclei", "metasploit"]`, por exemplo), e a coluna **Evidence** do
+relatório junta a evidência de cada uma.
 
 ## Configuração
 
@@ -1039,14 +1093,17 @@ cd backend
 pytest -v
 ```
 
-**293 testes**, cobrindo cada módulo isoladamente (mockando chamadas
-externas, incluindo o Playwright do `browser_fingerprint` e o
-`msfconsole` do `msf_validation`), o orquestrador (isolamento de falha
-por módulo, ordenação por `run_order`, propagação de contexto,
-acumulação de `validated_by` quando dois validadores confirmam a mesma
-CVE), comportamento de rate limiting/circuit breaker sob concorrência
-real (múltiplas threads disputando os mesmos primitivos compartilhados),
-e a CLI (`typer.testing.CliRunner`, mockando o orquestrador para não
+**315 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+externas, incluindo o Playwright do `browser_fingerprint`, o
+`msfconsole` do `msf_validation`, o `nmap` do `nmap_validation` e o
+`testssl.sh` do `tls_validation` — com fixtures baseadas em saída real
+capturada dos quatro binários), a base compartilhada dos validadores
+(`ActiveCveValidatorModule`), o orquestrador (isolamento de falha por
+módulo, ordenação por `run_order`, propagação de contexto, acumulação
+de `validated_by` quando mais de um validador confirma a mesma CVE),
+comportamento de rate limiting/circuit breaker sob concorrência real
+(múltiplas threads disputando os mesmos primitivos compartilhados), e a
+CLI (`typer.testing.CliRunner`, mockando o orquestrador para não
 depender da rede).
 
 ## Limitações conhecidas
@@ -1055,8 +1112,15 @@ depender da rede).
   externas — sem elas, esses dois módulos específicos ficam limitados
   (viram `module_error`, o resto do scan continua normal). O mesmo vale
   para o Chromium do Playwright (`browser_fingerprint`), o `nuclei`
-  (`nuclei_validation`) e o Metasploit (`msf_validation`) — todos
+  (`nuclei_validation`), o Metasploit (`msf_validation`), o `nmap`
+  (`nmap_validation`) e o `testssl.sh` (`tls_validation`) — todos
   opcionais, nenhum derruba o scan quando ausente.
+- **`nmap_validation` e `tls_validation` cobrem listas curadas e
+  deliberadamente pequenas de CVEs conhecidas** — dezenas, não milhares
+  como o `nuclei`. Uma CVE fora dessas listas simplesmente não é
+  tentada por esses dois motores (`no_script`/`no_check` na auditoria,
+  não é erro) — `nuclei_validation` e `msf_validation` continuam sendo
+  os motores de cobertura ampla.
 - **Sem cache de CVE** — toda consulta à NVD é uma chamada de rede nova,
   mesmo repetindo o mesmo alvo/tecnologia entre scans.
 - **`subdomain_permutation` gera candidatos não confirmados** — eles
@@ -1091,7 +1155,7 @@ depender da rede).
 
 ## Roadmap
 
-Progresso do roadmap enterprise-grade — **9 de 9 fases concluídas**:
+Progresso do roadmap enterprise-grade — **10 de 10 fases concluídas**:
 
 | Fase | Entrega | Status |
 |:---:|---|:---:|
@@ -1104,6 +1168,7 @@ Progresso do roadmap enterprise-grade — **9 de 9 fases concluídas**:
 | G | Cobertura de fingerprint ampliada (motor Wappalyzer, +7.500 tecnologias) | ✅ |
 | H | Execução em escala — concorrência local controlada (`--max-workers`) | ✅ |
 | I | Fingerprint via navegador (`browser_fingerprint`, 100% do dataset Wappalyzer) + segundo validador ativo de CVE (`msf_validation`, Metasploit) | ✅ |
+| J | Terceiro e quarto validadores ativos de CVE (`nmap_validation`, `tls_validation`) + base compartilhada `ActiveCveValidatorModule` | ✅ |
 
 **Próximos passos considerados** (sem fase formal ainda):
 

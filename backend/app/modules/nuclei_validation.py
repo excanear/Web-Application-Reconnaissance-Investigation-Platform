@@ -4,12 +4,10 @@ import subprocess
 
 from app import i18n
 from app.audit import AuditLog
-from app.modules.base import Finding, ReconModule, register_module
-from app.ratelimit import CircuitBreaker
-from app.scope import is_in_scope
+from app.modules.base import Finding, register_module
+from app.modules.cve_validator_base import ActiveCveValidatorModule
 
 DEFAULT_RATE_LIMIT = 5.0
-DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
 # Hard-coded, never operator-configurable: dos/fuzz/intrusive-tagged
 # templates are excluded from every invocation regardless of settings --
 # this is a permanent safety boundary, the same tier as
@@ -26,54 +24,14 @@ NO_TEMPLATE_MARKER = "no templates provided for scan"
 
 
 @register_module
-class NucleiValidationModule(ReconModule):
+class NucleiValidationModule(ActiveCveValidatorModule):
     name = "nuclei_validation"
     run_order = 95
-    is_active = True
 
-    def run(self, target: str, context: dict) -> list[Finding]:
-        cve_findings = context.get("cve_findings", [])
-        scope = context.get("scope")
-        audit = context.get("audit")
+    def _validate(self, cve_id: str, host: str, context: dict) -> tuple[Finding | None, bool]:
+        audit: AuditLog | None = context.get("audit")
         rate_limit = context.get("rate_limit", DEFAULT_RATE_LIMIT)
-        breaker = CircuitBreaker(
-            context.get("circuit_breaker_threshold", DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
-        )
-        findings: list[Finding] = []
 
-        for index, entry in enumerate(cve_findings):
-            cve_id = entry.get("cve_id")
-            host = entry.get("host")
-            if not cve_id or not host:
-                continue
-
-            if scope is not None and not is_in_scope(host, None, scope):
-                findings.append(
-                    Finding(type="out_of_scope", value=host, data={"module": self.name})
-                )
-                continue
-
-            finding, succeeded = self._validate(cve_id, host, rate_limit, audit)
-            if finding is not None:
-                findings.append(finding)
-
-            if succeeded:
-                breaker.record_success()
-            elif breaker.record_failure():
-                findings.append(
-                    Finding(
-                        type="circuit_breaker_tripped",
-                        value=target,
-                        data={"module": self.name, "skipped_checks": len(cve_findings) - index - 1},
-                    )
-                )
-                break
-
-        return findings
-
-    def _validate(
-        self, cve_id: str, host: str, rate_limit: float, audit: AuditLog | None
-    ) -> tuple[Finding | None, bool]:
         url = f"https://{host}/"
         target_label = f"{cve_id}@{host}"
         command = [
