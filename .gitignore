@@ -47,6 +47,9 @@ htmlcov/
 .env.local
 .env.*.local
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 
 # Node (for frontend)
 node_modules/

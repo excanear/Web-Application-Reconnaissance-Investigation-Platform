@@ -492,6 +492,34 @@ resultado de `python --version`.
 
 ## Referência de comandos
 
+### Linux: instalar tudo de uma vez (recomendado)
+
+Se você está no Linux, esse é o jeito mais rápido de ter a ferramenta
+100% funcional — todas as ferramentas opcionais abaixo (`subfinder`,
+`httpx`, `nuclei`, Chromium do Playwright, Metasploit Framework) de
+uma vez só, num único script idempotente (rodar de novo só pula o que
+já está instalado):
+
+```bash
+# de dentro de backend/, com o venv ativado
+./scripts/install_all_linux.sh
+```
+
+Ele instala Go via `apt` se faltar, compila `subfinder`/`httpx`/`nuclei`
+via `go install`, instala o pacote Python da ferramenta
+(`pip install -e .`), baixa o Chromium do Playwright com as bibliotecas
+de sistema (`playwright install --with-deps`), e instala o Metasploit
+Framework pelo instalador oficial da Rapid7 — pedindo sua senha de
+`sudo` quando precisar (só pros passos que mexem em pacotes do
+sistema). Tudo real e testado de ponta a ponta contra um Ubuntu limpo:
+Go/build-essential/libpcap-dev via `apt`, os três binários Go, Chromium
+rodando um scan de verdade, e o Metasploit confirmando/descartando CVEs
+reais via `search cve:` + `check`.
+
+No fim ele imprime um resumo do que ficou instalado. Se preferir
+instalar cada ferramenta manualmente (ou não estiver no Linux), siga as
+seções abaixo.
+
 ### Instalar `subfinder` e `httpx` (opcional)
 
 Ferramentas Go externas, usadas pelos módulos de mesmo nome. Exigem

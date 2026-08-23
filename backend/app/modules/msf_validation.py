@@ -14,19 +14,32 @@ SEARCH_TIMEOUT = 60
 CHECK_TIMEOUT = 120
 
 # msfconsole's `search` table has had a stable column layout for years:
-# "   #  Name  Disclosure Date  Rank  Check  Description" -- module ref
+# "   #  Full Name  Disclosure Date  Rank  Check  Name" -- module ref
 # names never contain whitespace, so the second whitespace-separated
 # token of the first numbered data row is always the top-ranked match.
+# Verified against a real msfconsole 6.5.3 `search cve:2021-44228`.
 _SEARCH_ROW_RE = re.compile(r"^\s*(\d+)\s+(\S+)", re.MULTILINE)
 
-# Msf::Exploit::CheckCode's own report_check_result() has printed these
-# exact "[+]/[-]/[*] ... - <message>" prefixes for over a decade -- this
-# is the documented, stable contract msfconsole automation scrapes, not
-# an internal implementation detail liable to change release to release.
-_VULNERABLE_RE = re.compile(r"^\[\+\].*is vulnerable", re.IGNORECASE | re.MULTILINE)
-_NOT_VULNERABLE_RE = re.compile(
-    r"^\[-\].*(is not vulnerable|not exploitable|appears to be safe)", re.IGNORECASE | re.MULTILINE
-)
+# msfconsole colorizes every [+]/[-]/[*] line with raw ANSI SGR escapes
+# even when stdout isn't a tty (verified live: piping to a file still
+# produced e.g. "\x1b[1m\x1b[34m[*]\x1b[0m ..." for a status line) -- the
+# prefix is never the first literal character on the line, so it must be
+# stripped before any "^\[...\]" match is attempted.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+# Msf::Exploit::CheckCode (lib/msf/core/exploit.rb) only ever prints
+# print_good ("[+]") for the Vulnerable and Appears codes -- every other
+# code (Safe/"not exploitable", Unknown/"cannot reliably check",
+# Detected, Unsupported) goes through print_status ("[*]"), confirmed
+# live against Metasploit 6.5.3. There is no "[-] ... not vulnerable"
+# message to scrape -- "[-]" is reserved for genuine check failures
+# (exceptions), which this module intentionally does not try to
+# distinguish from an ordinary negative/inconclusive result.
+_VULNERABLE_RE = re.compile(r"^\[\+\]\s*(.*vulnerable.*)$", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
 
 
 @register_module
@@ -120,7 +133,7 @@ class MsfValidationModule(ReconModule):
                 audit.record(module=self.name, target=target_label, outcome=f"error: {exc}", url=None)
             return None, False
 
-        match = _SEARCH_ROW_RE.search(result.stdout)
+        match = _SEARCH_ROW_RE.search(_strip_ansi(result.stdout))
         if match is None:
             return None, True
         return match.group(2), True
@@ -150,7 +163,9 @@ class MsfValidationModule(ReconModule):
                 audit.record(module=self.name, target=target_label, outcome=f"error: {exc}", url=None)
             return None, False
 
-        if _VULNERABLE_RE.search(result.stdout):
+        clean_stdout = _strip_ansi(result.stdout)
+        vulnerable_match = _VULNERABLE_RE.search(clean_stdout)
+        if vulnerable_match:
             if audit is not None:
                 audit.record(module=self.name, target=target_label, outcome="confirmed", url=None)
             data = {
@@ -158,6 +173,7 @@ class MsfValidationModule(ReconModule):
                 "status": "confirmed",
                 "tool": "metasploit",
                 "msf_module": module_path,
+                "msf_check_message": vulnerable_match.group(1).strip(),
                 "msf_confirmation_note_en": i18n.t(
                     "cve_confirmed_note_msf", lang="en", module=module_path
                 ),
@@ -167,11 +183,6 @@ class MsfValidationModule(ReconModule):
             }
             return Finding(type="cve_validation", value=cve_id, data=data), True
 
-        if _NOT_VULNERABLE_RE.search(result.stdout):
-            if audit is not None:
-                audit.record(module=self.name, target=target_label, outcome="not_vulnerable", url=None)
-            return None, True
-
         if audit is not None:
-            audit.record(module=self.name, target=target_label, outcome="inconclusive", url=None)
+            audit.record(module=self.name, target=target_label, outcome="not_vulnerable", url=None)
         return None, True
