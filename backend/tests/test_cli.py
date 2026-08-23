@@ -864,6 +864,44 @@ def test_update_fingerprints_command_reports_success(monkeypatch):
     assert "50" in result.output
 
 
+def test_doctor_command_reports_ok_and_missing_tools(monkeypatch):
+    from app import cli
+
+    monkeypatch.setattr(
+        cli,
+        "preflight_report",
+        lambda: [
+            {"name": "nuclei", "found": True, "ok": True, "path": "/usr/bin/nuclei"},
+            {
+                "name": "httpx",
+                "found": False,
+                "ok": False,
+                "detail": "found the wrong tool on PATH",
+            },
+        ],
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert "nuclei" in result.output
+    assert "httpx" in result.output
+    assert "found the wrong tool on PATH" in result.output
+
+
+def test_doctor_command_exits_with_error_code_when_a_tool_is_not_ok(monkeypatch):
+    from app import cli
+
+    monkeypatch.setattr(
+        cli,
+        "preflight_report",
+        lambda: [{"name": "httpx", "found": False, "ok": False, "detail": "missing"}],
+    )
+
+    result = runner.invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+
+
 def test_repl_runs_a_command_then_exits_on_the_exit_keyword(capsys):
     db = SessionLocal()
     try:

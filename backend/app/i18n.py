@@ -80,6 +80,16 @@ STRINGS = {
             "webscan interactive shell. Type a command (e.g. 'history'), "
             "'help' for options, or 'exit' to quit."
         ),
+        "repl_commands_hint": (
+            "Available commands: scan, doctor, history, report, audit, "
+            "update-fingerprints. Type '<command> --help' for details on any of them."
+        ),
+        "doctor_title": "External tool check",
+        "doctor_col_tool": "Tool",
+        "doctor_col_status": "Status",
+        "doctor_col_detail": "Detail",
+        "doctor_status_ok": "OK",
+        "doctor_status_problem": "PROBLEM",
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -154,6 +164,16 @@ STRINGS = {
             "Shell interativo do webscan. Digite um comando (ex: 'history'), "
             "'help' para ver as opcoes, ou 'exit' para sair."
         ),
+        "repl_commands_hint": (
+            "Comandos disponiveis: scan, doctor, history, report, audit, "
+            "update-fingerprints. Digite '<comando> --help' para ver os detalhes de cada um."
+        ),
+        "doctor_title": "Verificacao de ferramentas externas",
+        "doctor_col_tool": "Ferramenta",
+        "doctor_col_status": "Status",
+        "doctor_col_detail": "Detalhe",
+        "doctor_status_ok": "OK",
+        "doctor_status_problem": "PROBLEMA",
     },
 }
 

@@ -6,6 +6,7 @@ from app import models
 from app.modules.base import Finding, MODULE_REGISTRY
 from app.scope import is_in_scope, is_within_window
 from app.timeutil import utc_now
+from app.tool_check import preflight_report
 
 DEFAULT_RATE_LIMIT = 5.0
 DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
@@ -60,6 +61,19 @@ def run_scan(
             "scope": scan.project.scope or {},
             "audit": AuditLog(),
         }
+
+        for tool in preflight_report():
+            if not tool["ok"]:
+                _persist(
+                    db,
+                    scan_id,
+                    "orchestrator",
+                    Finding(
+                        type="tool_missing",
+                        value=tool["name"],
+                        data={"detail": tool.get("detail", f"{tool['name']} not found on PATH")},
+                    ),
+                )
 
         recorded_out_of_scope_subdomains: set = set()
         subdomains_persisted = 0

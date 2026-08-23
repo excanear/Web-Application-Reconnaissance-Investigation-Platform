@@ -1,10 +1,23 @@
 from contextlib import ExitStack
 from unittest.mock import patch
 
+import pytest
+
 from app.db import Base, engine, SessionLocal
 from app import models, report_csv, report_data, report_pdf
 from app.modules.base import Finding, MODULE_REGISTRY, ReconModule, register_module
 from app.orchestrator import run_scan
+
+
+@pytest.fixture(autouse=True)
+def _all_tools_ok_by_default():
+    # The real preflight_report() depends on what's actually installed
+    # on the machine running the tests -- pin it to "everything ok" so
+    # these tests stay deterministic and unrelated to this environment's
+    # tool availability. test_run_scan_records_a_finding_for_missing_or_wrong_tools
+    # overrides this to exercise the actual reporting behavior.
+    with patch("app.orchestrator.preflight_report", return_value=[]):
+        yield
 
 
 def _mock_all_modules(overrides: dict | None = None, exclude: set | None = None) -> ExitStack:
@@ -68,6 +81,43 @@ def test_run_scan_persists_findings_and_marks_scan_complete():
     # discovered subdomain is out of scope and the orchestrator now
     # records that as an out_of_scope finding instead of dropping it silently.
     assert {f.type for f in findings} == {"subdomain", "whois", "live_host", "out_of_scope"}
+
+
+def test_run_scan_records_a_finding_for_missing_or_wrong_tools():
+    # Regression coverage for the real-world bug: on a machine missing
+    # or shadowing external tools (e.g. subfinder not installed, httpx
+    # on PATH resolving to the wrong same-named tool), the scan used to
+    # only show this as a module_error buried in results -- easy to miss,
+    # which is exactly what made the technology/CVE drop look mysterious
+    # instead of explainable. It must now be a clear, upfront finding.
+    scan_id = _create_authorized_project_and_scan()
+
+    with _mock_all_modules():
+        with patch(
+            "app.orchestrator.preflight_report",
+            return_value=[
+                {
+                    "name": "httpx",
+                    "found": False,
+                    "ok": False,
+                    "detail": "found the wrong tool on PATH",
+                },
+                {"name": "nuclei", "found": True, "ok": True, "path": "/usr/bin/nuclei"},
+            ],
+        ):
+            run_scan(scan_id)
+
+    db = SessionLocal()
+    try:
+        findings = db.query(models.Finding).filter_by(scan_id=scan_id).all()
+    finally:
+        db.close()
+
+    tool_findings = [f for f in findings if f.type == "tool_missing"]
+    assert len(tool_findings) == 1
+    assert tool_findings[0].value == "httpx"
+    assert tool_findings[0].data == {"detail": "found the wrong tool on PATH"}
+    assert tool_findings[0].module == "orchestrator"
 
 
 def _create_unauthorized_project_and_scan():

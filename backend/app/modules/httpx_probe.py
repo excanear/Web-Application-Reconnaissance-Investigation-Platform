@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 from app.modules.base import Finding, ReconModule, register_module
 from app.scope import is_in_scope
+from app.tool_check import ToolResolutionError, resolve_httpx_binary
 
 DEFAULT_RATE_LIMIT = 5.0
 
@@ -31,11 +32,20 @@ class HttpxProbeModule(ReconModule):
             hosts = in_scope_hosts
 
         rate_limit = context.get("rate_limit", DEFAULT_RATE_LIMIT)
+
+        try:
+            binary = resolve_httpx_binary()
+        except ToolResolutionError as exc:
+            if audit is not None:
+                for host in sorted(hosts):
+                    audit.record(module=self.name, target=host, outcome=f"not_attempted: {exc}")
+            raise
+
         # httpx paces its own requests natively -- pass our limit through
         # instead of reimplementing pacing for a subprocess we don't
         # control the request loop of.
         command = [
-            "httpx",
+            binary,
             "-silent",
             "-json",
             "-tech-detect",

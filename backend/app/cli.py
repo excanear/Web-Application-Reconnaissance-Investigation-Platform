@@ -17,13 +17,29 @@ from app.modules.base import MODULE_REGISTRY
 from app.orchestrator import run_scan
 from app.scope import is_in_scope
 from app.timeutil import utc_now
+from app.tool_check import preflight_report
 
 # NVD descriptions can contain characters legacy Windows consoles (cp1252)
 # can't encode; replace instead of crashing the whole report.
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(errors="replace")
 
-app = typer.Typer(help="Recon & Investigation CLI")
+app = typer.Typer(
+    help=(
+        "webscan - plataforma de reconhecimento e investigacao de aplicacoes web.\n\n"
+        "Descobre subdominios, identifica tecnologias em uso e correlaciona/valida "
+        "CVEs conhecidas contra um alvo autorizado, com escopo controlado, "
+        "rate limiting, circuit breaker e trilha de auditoria completa.\n\n"
+        "Fluxo tipico de uso:\n\n"
+        "  1. webscan doctor                              (confere as ferramentas externas instaladas)\n"
+        "  2. webscan scan <alvo> --authorized --scope \"...\"   (executa o scan)\n"
+        "  3. webscan history                             (lista os scans ja executados)\n"
+        "  4. webscan report <id>                         (ve o relatorio de um scan)\n"
+        "  5. webscan audit <id>                           (ve a trilha de auditoria de um scan)\n\n"
+        "Rode `webscan` sem nenhum comando para entrar no shell interativo, ou "
+        "`webscan <comando> --help` para ver os detalhes e exemplos de cada comando."
+    ),
+)
 # When stdout isn't a real terminal (piped, redirected, or captured by
 # tests), Rich falls back to an 80-column default that's too narrow for
 # the CVE table's seven columns and ellipsis-truncates cell content
@@ -49,7 +65,7 @@ SEVERITY_STYLE = {"CRITICAL": "bold red", "HIGH": "red", "MEDIUM": "yellow", "LO
 @app.callback()
 def main(
     lang: str = typer.Option(
-        i18n.DEFAULT_LANG, "--lang", help="Output language: en (default) or pt"
+        i18n.DEFAULT_LANG, "--lang", help="Idioma da saida: en (padrao em ingles) ou pt (portugues)"
     ),
 ) -> None:
     i18n.set_lang(lang)
@@ -57,45 +73,86 @@ def main(
 
 @app.command()
 def scan(
-    target: str = typer.Argument(..., help="Domain/target to scan"),
-    scope: str = typer.Option(..., "--scope", help="Description of the authorized scope"),
+    target: str = typer.Argument(
+        ..., help="Dominio ou IP alvo do scan (ex: exemplo.com.br)"
+    ),
+    scope: str = typer.Option(
+        ...,
+        "--scope",
+        help="Texto livre descrevendo a autorizacao/escopo (ex: 'pentest autorizado pelo dono do dominio'). Fica gravado no projeto para auditoria.",
+    ),
     authorized: bool = typer.Option(
-        False, "--authorized", help="Confirm you are authorized to test this target"
+        False,
+        "--authorized",
+        help="Obrigatorio: confirma que voce tem autorizacao para testar este alvo. Sem essa flag o scan e recusado.",
     ),
     confirm_active: bool = typer.Option(
-        False, "--confirm-active", help="Confirm active/intrusive modules may run"
+        False,
+        "--confirm-active",
+        help="Obrigatorio quando ha modulos ativos registrados (ex: nuclei_validation, msf_validation, nmap_validation, tls_validation): confirma que voce autoriza trafego ativo/intrusivo contra o alvo, alem da coleta passiva.",
     ),
-    name: str = typer.Option(None, "--name", help="Project name (defaults to target)"),
+    name: str = typer.Option(
+        None, "--name", help="Nome do projeto no banco de dados (padrao: o proprio alvo)"
+    ),
     max_requests_per_second: float = typer.Option(
-        5.0, "--max-requests-per-second", help="Cap request pace against the target/subdomains"
+        5.0,
+        "--max-requests-per-second",
+        help="Limite de requisicoes por segundo contra o alvo e seus subdominios (padrao: 5.0)",
     ),
     circuit_breaker_threshold: int = typer.Option(
         5,
         "--circuit-breaker-threshold",
-        help="Consecutive failures against a target before a module stops probing it",
+        help="Numero de falhas consecutivas contra um host antes de um modulo parar de sondar aquele host (protege contra ficar martelando um host fora do ar)",
     ),
     max_workers: int = typer.Option(
         1,
         "--max-workers",
         min=1,
-        help="Process up to this many hosts concurrently within tech_fingerprint/cloud_range (default: fully sequential)",
+        help="Quantos hosts processar em paralelo dentro de tech_fingerprint/cloud_range (padrao: 1, totalmente sequencial). Aumente para acelerar scans com muitos subdominios.",
     ),
     max_subdomains: int = typer.Option(
         1000,
         "--max-subdomains",
         min=1,
-        help="Cap on subdomain candidates accepted across all discovery modules combined (protects the rest of the scan from a noisy passive source)",
+        help="Teto de candidatos a subdominio aceitos somando todos os modulos de descoberta (crt.sh + subfinder + permutacao). Protege o resto do scan quando uma fonte passiva devolve ruido demais (padrao: 1000).",
     ),
     scope_include: list[str] = typer.Option(
-        None, "--scope-include", help="Domain pattern or CIDR explicitly in scope (repeatable)"
+        None,
+        "--scope-include",
+        help="Padrao de dominio ou CIDR explicitamente dentro do escopo (pode repetir a flag varias vezes). Sem isso, o padrao e '<alvo>' e '*.<alvo>'.",
     ),
     scope_exclude: list[str] = typer.Option(
-        None, "--scope-exclude", help="Domain pattern or CIDR explicitly excluded (repeatable)"
+        None,
+        "--scope-exclude",
+        help="Padrao de dominio ou CIDR explicitamente fora do escopo, mesmo que bata com --scope-include (pode repetir a flag varias vezes)",
     ),
     scope_window: str = typer.Option(
-        None, "--scope-window", help="Allowed UTC time window, e.g. 09:00-18:00"
+        None,
+        "--scope-window",
+        help="Janela de horario (UTC) em que o scan pode rodar, formato HH:MM-HH:MM (ex: 09:00-18:00). Fora da janela, os modulos sao pulados.",
     ),
 ) -> None:
+    """Executa um scan de reconhecimento completo contra um alvo autorizado.
+
+    Descobre subdominios (crt.sh, subfinder, permutacao de wordlist),
+    identifica hosts vivos e tecnologias em uso (HTTP + fingerprint via
+    navegador), correlaciona CVEs conhecidas para as tecnologias
+    encontradas e tenta confirma-las ativamente com os validadores
+    instalados (nuclei, Metasploit, nmap, testssl.sh). Ao final, imprime
+    o relatorio na tela (mesmo formato do comando `report`).
+
+    Exemplos:
+
+      webscan scan exemplo.com.br --authorized --scope "pentest autorizado pelo dono do dominio"
+
+      webscan scan exemplo.com.br --authorized --confirm-active --scope "autorizado" \\
+          --scope-include "exemplo.com.br" --scope-include "*.exemplo.com.br" \\
+          --scope-exclude "admin.exemplo.com.br" --max-requests-per-second 2
+
+    Use `webscan doctor` antes, para confirmar que as ferramentas
+    externas necessarias estao instaladas -- uma ferramenta ausente ou
+    nao reconhecida corretamente reduz silenciosamente os resultados
+    (menos hosts vivos -> menos tecnologias -> menos CVEs correlacionadas)."""
     if not authorized:
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('authorized_required')}")
         raise typer.Exit(code=1)
@@ -175,6 +232,11 @@ def scan(
 
 @app.command()
 def history() -> None:
+    """Lista todos os scans ja executados (mais recente primeiro), com
+    ID, projeto, alvo, status e horario de inicio. Use o ID mostrado
+    aqui com `webscan report <id>` ou `webscan audit <id>`.
+
+    Exemplo:  webscan history"""
     db = SessionLocal()
     try:
         scans = db.query(models.Scan).order_by(models.Scan.id.desc()).all()
@@ -199,6 +261,15 @@ def history() -> None:
 
 @app.command(name="update-fingerprints")
 def update_fingerprints() -> None:
+    """Baixa a versao mais recente do dataset de fingerprint (assinaturas
+    de tecnologias, ~7.500+ tecnologias, baseado no Wappalyzer) e
+    substitui o dataset local usado por tech_fingerprint/browser_fingerprint.
+
+    Rode isso periodicamente para detectar tecnologias novas ou versoes
+    mais recentes de assinaturas ja conhecidas. Nao afeta scans ja
+    executados, so os proximos.
+
+    Exemplo:  webscan update-fingerprints"""
     try:
         tech_count, cat_count = fingerprint_update.update_vendored_data()
     except requests.RequestException as exc:
@@ -210,11 +281,74 @@ def update_fingerprints() -> None:
 
 
 @app.command()
+def doctor() -> None:
+    """Verifica se cada ferramenta externa que um scan pode usar
+    (subfinder, httpx, nuclei, msfconsole, nmap, testssl.sh) esta
+    instalada e corretamente identificada nesta maquina, e imprime uma
+    tabela de status (OK / PROBLEMA + detalhe).
+
+    Rode isso antes de um scan, e sempre que os resultados parecerem
+    menores do que deveriam -- uma ferramenta ausente ou com o nome
+    colidindo com outro programa (ex: "httpx" apontando para o pacote
+    Python de mesmo nome, e nao para o httpx do ProjectDiscovery) faz o
+    modulo correspondente falhar silenciosamente (module_error), e tudo
+    que depende dele encolhe junto (menos hosts vivos -> menos
+    tecnologias -> menos CVEs correlacionadas), sem nenhum erro obvio
+    no relatorio final.
+
+    Sai com codigo 1 se alguma ferramenta estiver com problema (util em
+    scripts de instalacao/CI).
+
+    Exemplo:  webscan doctor"""
+    table = Table(title=i18n.t("doctor_title"))
+    table.add_column(i18n.t("doctor_col_tool"))
+    table.add_column(i18n.t("doctor_col_status"))
+    table.add_column(i18n.t("doctor_col_detail"))
+
+    all_ok = True
+    for tool in preflight_report():
+        if tool["ok"]:
+            status = f"[green]{i18n.t('doctor_status_ok')}[/green]"
+            detail = tool.get("path", "")
+        else:
+            all_ok = False
+            status = f"[red]{i18n.t('doctor_status_problem')}[/red]"
+            detail = tool.get("detail", "")
+        table.add_row(tool["name"], status, detail)
+
+    console.print(table)
+    if not all_ok:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def report(
-    scan_id: int = typer.Argument(..., help="ID of a previously run scan"),
-    format: str = typer.Option("table", "--format", help="Output format: table (default), csv, or pdf"),
-    output: str = typer.Option(None, "--output", "-o", help="Output file path (pdf format only)"),
+    scan_id: int = typer.Argument(..., help="ID de um scan ja executado (veja 'webscan history')"),
+    format: str = typer.Option(
+        "table",
+        "--format",
+        help="Formato de saida: table (tabela na tela, padrao), csv, ou pdf",
+    ),
+    output: str = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Caminho do arquivo de saida (so vale para --format pdf; padrao: report_<id>.pdf)",
+    ),
 ) -> None:
+    """Mostra o relatorio de um scan ja executado: tecnologias
+    detectadas, CVEs correlacionadas (com status confirmado/suspeito e
+    evidencia de qual validador confirmou) e outros achados.
+
+    Exemplos:
+
+      webscan report 20
+
+      webscan report 20 --format csv > relatorio.csv
+
+      webscan report 20 --format pdf --output relatorio.pdf
+
+      webscan --lang pt report 20   (forca a saida em portugues)"""
     if format not in ("table", "csv", "pdf"):
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('invalid_report_format')}")
         raise typer.Exit(code=1)
@@ -241,9 +375,25 @@ def report(
 
 @app.command()
 def audit(
-    scan_id: int = typer.Argument(..., help="ID of a previously run scan"),
-    format: str = typer.Option("table", "--format", help="Output format: table (default) or csv"),
+    scan_id: int = typer.Argument(..., help="ID de um scan ja executado (veja 'webscan history')"),
+    format: str = typer.Option(
+        "table", "--format", help="Formato de saida: table (tabela na tela, padrao) ou csv"
+    ),
 ) -> None:
+    """Mostra a trilha de auditoria completa de um scan: toda requisicao
+    que cada modulo tentou (ou nao tentou, se a ferramenta faltava) --
+    modulo, alvo, URL, resultado e horario.
+
+    Use para investigar por que um scan trouxe menos resultados do que
+    o esperado: procure por entradas 'not_attempted:' (ferramenta nao
+    encontrada) ou 'error:' (a ferramenta rodou mas falhou), que nao
+    aparecem no relatorio normal (`webscan report`).
+
+    Exemplos:
+
+      webscan audit 20
+
+      webscan audit 20 --format csv > auditoria.csv"""
     if format not in ("table", "csv"):
         console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('invalid_audit_format')}")
         raise typer.Exit(code=1)
@@ -357,6 +507,7 @@ def _prompt_lines() -> Iterator[str]:
 def _run_repl_loop(lines: Iterable[str]) -> None:
     cli = get_command(app)
     console.print(i18n.t("repl_welcome"))
+    console.print(i18n.t("repl_commands_hint"))
     for raw_line in lines:
         line = raw_line.strip()
         if not line:

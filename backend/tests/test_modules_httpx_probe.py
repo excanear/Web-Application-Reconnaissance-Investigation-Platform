@@ -4,6 +4,18 @@ from unittest.mock import MagicMock, patch
 
 from app.audit import AuditLog
 from app.modules.httpx_probe import HttpxProbeModule
+from app.tool_check import ToolResolutionError
+
+
+@pytest.fixture(autouse=True)
+def _resolved_httpx_binary():
+    # httpx_probe now resolves the real ProjectDiscovery httpx binary
+    # before invoking it (see test_tool_check.py for that logic) --
+    # these tests are about parsing/scope/audit behavior, so pin
+    # resolution to a fixed name and let subprocess.run itself be mocked
+    # as before.
+    with patch("app.modules.httpx_probe.resolve_httpx_binary", return_value="httpx"):
+        yield
 
 
 def test_httpx_probe_parses_json_lines_into_live_host_findings():
@@ -131,3 +143,27 @@ def test_records_error_for_every_host_when_subprocess_fails():
     targets = {e["target"] for e in audit.entries}
     assert targets == {"example.com", "a.example.com"}
     assert all(e["outcome"].startswith("error:") for e in audit.entries)
+
+
+def test_records_not_attempted_for_every_host_when_httpx_binary_cannot_be_resolved():
+    # Regression test: on some machines "httpx" on PATH resolves to an
+    # unrelated Python package's CLI that shadows ProjectDiscovery's
+    # httpx (same command name). The module must fail clearly and
+    # record it per host, without ever invoking the wrong binary.
+    audit = AuditLog()
+    with patch(
+        "app.modules.httpx_probe.resolve_httpx_binary",
+        side_effect=ToolResolutionError("wrong tool detected"),
+    ):
+        with patch("app.modules.httpx_probe.subprocess.run") as mock_run:
+            with pytest.raises(ToolResolutionError):
+                HttpxProbeModule().run(
+                    "example.com", {"subdomains": {"a.example.com"}, "audit": audit}
+                )
+
+    mock_run.assert_not_called()
+    targets = {e["target"] for e in audit.entries}
+    assert targets == {"example.com", "a.example.com"}
+    assert all(
+        e["outcome"] == "not_attempted: wrong tool detected" for e in audit.entries
+    )
