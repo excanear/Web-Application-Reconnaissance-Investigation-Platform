@@ -222,13 +222,24 @@ minuto.
 **Como saber que funcionou:** a última linha no terminal deve ser algo
 como `Successfully installed ...` listando os pacotes.
 
+Em seguida, instale a própria ferramenta em modo editável, o que
+registra o comando `webscan` no `venv`:
+
+```powershell
+pip install -e .
+```
+
+Com `(venv)` ativo, `webscan` passa a existir como comando direto —
+não precisa mais digitar `python -m app.cli` (mas isso continua
+funcionando, se preferir).
+
 ### Passo 5 — Rode seu primeiro scan
 
 Agora o comando principal da ferramenta. Vamos usar `example.com`, o
 domínio de exemplo reservado pela IANA, seguro para qualquer um testar:
 
 ```powershell
-python -m app.cli scan example.com --scope "meu primeiro teste" --authorized --confirm-active
+webscan scan example.com --scope "meu primeiro teste" --authorized --confirm-active
 ```
 
 **O que esperar na tela**, em ordem:
@@ -257,20 +268,20 @@ Troque `example.com` pelo domínio que você está autorizado a testar, e
 `"meu primeiro teste"` por uma descrição de escopo real:
 
 ```powershell
-python -m app.cli scan seudominio.com --scope "pentest autorizado - contrato XYZ" --authorized --confirm-active
+webscan scan seudominio.com --scope "pentest autorizado - contrato XYZ" --authorized --confirm-active
 ```
 
 Depois, veja tudo que você já rodou:
 
 ```powershell
-python -m app.cli history
+webscan history
 ```
 
 E reimprima o relatório de um scan específico (troque `1` pelo número
 da coluna `ID` do `history`):
 
 ```powershell
-python -m app.cli report 1
+webscan report 1
 ```
 
 ---
@@ -334,7 +345,7 @@ explícitas (veja [Autorização e uso responsável](#autorização-e-uso-respon
 Adicione as duas flags no fim do comando:
 
 ```powershell
-python -m app.cli scan example.com --scope "teste" --authorized --confirm-active
+webscan scan example.com --scope "teste" --authorized --confirm-active
 ```
 
 </details>
@@ -542,13 +553,13 @@ Por padrão a CLI imprime tudo em inglês. Para saída em português, use
 `--lang pt` **antes** do nome do comando:
 
 ```bash
-python -m app.cli --lang pt scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
+webscan --lang pt scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
 ```
 
 ### Rodar um scan
 
 ```bash
-python -m app.cli scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
+webscan scan <alvo> --scope "<descrição do escopo autorizado>" --authorized --confirm-active
 ```
 
 | Flag | Obrigatória | O que faz |
@@ -603,7 +614,7 @@ projeto por completo.
 ### Ver histórico
 
 ```bash
-python -m app.cli history
+webscan history
 ```
 
 Lista todo scan já rodado (id, projeto, alvo, status, data).
@@ -611,7 +622,7 @@ Lista todo scan já rodado (id, projeto, alvo, status, data).
 ### Reimprimir um relatório
 
 ```bash
-python -m app.cli report <scan_id>
+webscan report <scan_id>
 ```
 
 Reimprime o relatório formatado de um scan já concluído, sem rodar nada
@@ -654,8 +665,8 @@ específico.
 ### Ver a trilha de auditoria
 
 ```bash
-python -m app.cli audit <scan_id> --format table
-python -m app.cli audit <scan_id> --format csv > audit.csv
+webscan audit <scan_id> --format table
+webscan audit <scan_id> --format csv > audit.csv
 ```
 
 Lista toda `AuditEntry` registrada de um scan — módulo, alvo, URL,
@@ -668,9 +679,9 @@ o que é registrado e por quê.
 <summary><strong>Ver <code>--help</code> completo</strong></summary>
 
 ```text
-$ python -m app.cli --help
+$ webscan --help
 
-Usage: python -m app.cli [OPTIONS] COMMAND [ARGS]...
+Usage: webscan [OPTIONS] COMMAND [ARGS]...
 
  Recon & Investigation CLI
 
@@ -834,8 +845,8 @@ respectivamente — uma aproximação aceita, não fidelidade literal por
 socket.
 
 ```bash
-python -m app.cli audit <scan_id> --format table
-python -m app.cli audit <scan_id> --format csv > audit.csv
+webscan audit <scan_id> --format table
+webscan audit <scan_id> --format csv > audit.csv
 ```
 
 ## Testes

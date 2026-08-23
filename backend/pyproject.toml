@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webscan"
+version = "0.1.0"
+description = "Recon & Investigation Platform CLI"
+requires-python = ">=3.11"
+dependencies = [
+    "sqlalchemy==2.0.52",
+    "python-whois==0.9.6",
+    "python-dotenv==1.2.2",
+    "requests==2.34.2",
+    "typer==0.27.1",
+    "rich==15.0.0",
+    "reportlab==5.0.1",
+]
+
+[project.scripts]
+webscan = "app.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["data/*.json"]
