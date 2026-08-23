@@ -1,12 +1,15 @@
 import csv
 import ipaddress
 import re
+import shlex
 import sys
+from collections.abc import Iterable, Iterator
 
 import requests
 import typer
 from rich.console import Console
 from rich.table import Table
+from typer.main import get_command
 
 from app import fingerprint_update, i18n, models, report_csv, report_data, report_pdf
 from app.db import SessionLocal, ensure_schema
@@ -329,5 +332,69 @@ def _render_table(data, lang: str) -> None:
         console.print(table)
 
 
+def _prompt_lines() -> Iterator[str]:
+    """Yield lines typed at an interactive `webscan> ` prompt until EOF
+    (Ctrl+D/Ctrl+Z). A Ctrl+C on an empty prompt cancels that line and
+    reprompts instead of killing the whole shell."""
+    while True:
+        try:
+            yield input("webscan> ")
+        except EOFError:
+            print()
+            return
+        except KeyboardInterrupt:
+            print()
+            continue
+
+
+def _run_repl_loop(lines: Iterable[str]) -> None:
+    cli = get_command(app)
+    console.print(i18n.t("repl_welcome"))
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line in ("exit", "quit"):
+            break
+        if line in ("help", "?"):
+            line = "--help"
+
+        try:
+            args = shlex.split(line)
+        except ValueError as exc:
+            console.print(f"[red]{i18n.t('error_prefix')}[/red] {exc}")
+            continue
+
+        # standalone_mode=False stops Click from calling sys.exit()/os._exit()
+        # on every command, which would otherwise tear down this loop after
+        # the first command (successful or not).
+        try:
+            cli.main(args=args, prog_name="webscan", standalone_mode=False)
+        except typer.Exit:
+            pass
+        except KeyboardInterrupt:
+            print()
+        except Exception as exc:
+            # Click's UsageError/ClickException (unknown command, bad
+            # option, etc.) know how to format themselves via .show();
+            # typer vendors its own Click fork so we can't import its
+            # exception classes directly, only detect the interface.
+            if hasattr(exc, "show") and callable(exc.show):
+                exc.show()
+            else:
+                console.print(f"[red]{i18n.t('error_prefix')}[/red] {exc}")
+
+
+def run_repl() -> None:
+    _run_repl_loop(_prompt_lines())
+
+
+def main() -> None:
+    if len(sys.argv) == 1:
+        run_repl()
+    else:
+        app()
+
+
 if __name__ == "__main__":
-    app()
+    main()

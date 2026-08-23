@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-webscan = "app.cli:app"
+webscan = "app.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["app*"]

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from app.cli import app
+from app.cli import app, _run_repl_loop
 from app.db import SessionLocal
 from app import models
 
@@ -824,6 +824,65 @@ def test_update_fingerprints_command_reports_success(monkeypatch):
     assert result.exit_code == 0
     assert "3000" in result.output
     assert "50" in result.output
+
+
+def test_repl_runs_a_command_then_exits_on_the_exit_keyword(capsys):
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Repl Co", target="repl.example.com", scope_notes="ok", authorized=True
+        )
+        db.add(project)
+        db.commit()
+        scan_row = models.Scan(project_id=project.id, status="complete")
+        db.add(scan_row)
+        db.commit()
+    finally:
+        db.close()
+
+    _run_repl_loop(["history", "exit", "history"])
+
+    out = capsys.readouterr().out
+    assert "repl.example.com" in out
+    assert out.count("repl.example.com") == 1  # loop stopped at 'exit', never reached the 2nd 'history'
+
+
+def test_repl_skips_blank_lines_without_erroring(capsys):
+    _run_repl_loop(["", "   ", "history"])
+
+    out = capsys.readouterr().out
+    assert "Scan history" in out
+
+
+def test_repl_prints_an_error_for_an_unknown_command_and_keeps_going(capsys):
+    _run_repl_loop(["not-a-real-command", "history"])
+
+    captured = capsys.readouterr()
+    assert "no such command" in captured.err.lower()
+    assert "Scan history" in captured.out
+
+
+def test_repl_surfaces_command_errors_without_killing_the_loop(capsys):
+    _run_repl_loop(["scan example.com --scope ok", "history"])
+
+    out = capsys.readouterr().out
+    assert "authorized" in out.lower()
+    assert "Scan history" in out
+
+
+def test_repl_help_keyword_shows_the_command_list(capsys):
+    _run_repl_loop(["help"])
+
+    out = capsys.readouterr().out
+    assert "scan" in out.lower()
+    assert "history" in out.lower()
+
+
+def test_repl_rejects_unterminated_quotes_without_crashing(capsys):
+    _run_repl_loop(['scan "unterminated', "history"])
+
+    out = capsys.readouterr().out
+    assert "Scan history" in out
 
 
 def test_update_fingerprints_command_reports_a_network_failure(monkeypatch):

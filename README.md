@@ -284,6 +284,30 @@ da coluna `ID` do `history`):
 webscan report 1
 ```
 
+### Modo interativo (shell)
+
+Rodar `webscan` sozinho, sem nenhum subcomando, abre um shell
+interativo — parecido com entrar numa ferramenta como o `claude`. Você
+digita os comandos sem repetir `webscan` toda vez, e sai com `exit`,
+`quit` ou Ctrl+D:
+
+```text
+$ webscan
+webscan interactive shell. Type a command (e.g. 'history'), 'help' for options, or 'exit' to quit.
+webscan> history
+...
+webscan> scan example.com --scope "meu primeiro teste" --authorized --confirm-active
+...
+webscan> report 1
+...
+webscan> exit
+```
+
+Dentro do shell, `help` (ou `?`) lista os comandos disponíveis, e um
+comando com erro (opção inválida, comando inexistente, scan sem
+`--authorized` etc.) mostra a mensagem de erro e volta pro prompt — não
+derruba a sessão. Ctrl+C cancela a linha atual sem fechar o shell.
+
 ---
 
 ## Problemas comuns

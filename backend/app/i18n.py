@@ -73,6 +73,10 @@ STRINGS = {
         "report_pdf_write_failed": "could not write the PDF report: {error}",
         "fingerprint_update_failed": "could not update the fingerprint dataset: {error}",
         "fingerprint_update_saved": "Fingerprint dataset updated: {tech_count} technologies, {cat_count} categories.",
+        "repl_welcome": (
+            "webscan interactive shell. Type a command (e.g. 'history'), "
+            "'help' for options, or 'exit' to quit."
+        ),
     },
     "pt": {
         "error_prefix": "Erro:",
@@ -140,6 +144,10 @@ STRINGS = {
         "report_pdf_write_failed": "nao foi possivel escrever o relatorio PDF: {error}",
         "fingerprint_update_failed": "nao foi possivel atualizar o dataset de fingerprint: {error}",
         "fingerprint_update_saved": "Dataset de fingerprint atualizado: {tech_count} tecnologias, {cat_count} categorias.",
+        "repl_welcome": (
+            "Shell interativo do webscan. Digite um comando (ex: 'history'), "
+            "'help' para ver as opcoes, ou 'exit' para sair."
+        ),
     },
 }
 
