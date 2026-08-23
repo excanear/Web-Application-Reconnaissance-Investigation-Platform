@@ -153,6 +153,69 @@ def test_matches_a_scriptsrc_pattern_against_extracted_script_urls(monkeypatch):
     assert findings[0].data["source"] == "scriptSrc"
 
 
+def test_scriptsrc_match_retains_the_matched_url_for_a_later_content_probe(monkeypatch):
+    # A self-hosted vendor script (e.g. "assets/vendor/bootstrap/js/
+    # bootstrap.bundle.min.js") often carries no version in its URL at
+    # all, so scriptSrc matches at "medium" confidence with no version --
+    # but tech_fingerprint can still fetch that exact URL and look for a
+    # version banner inside the file itself. That requires knowing which
+    # URL matched, so it must survive on the Finding.
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"Bootstrap": {"cats": [12], "scriptSrc": [r"bootstrap"]}}
+    response = _response(
+        text='<script src="assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>'
+    )
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert len(findings) == 1
+    assert findings[0].data["version"] is None
+    assert findings[0].data["script_src"] == "assets/vendor/bootstrap/js/bootstrap.bundle.min.js"
+
+
+def test_non_scriptsrc_match_has_no_script_src(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"nginx": {"cats": [22], "headers": {"Server": "nginx/([\\d.]+)\\;version:\\1"}}}
+    response = _response(headers={"Server": "nginx/1.18.0"})
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert findings[0].data["script_src"] is None
+
+
+def test_a_winning_non_scriptsrc_match_still_picks_up_script_src_from_a_shadowed_duplicate(
+    monkeypatch,
+):
+    # Real case: Bootstrap's own Wappalyzer definition matches this page
+    # via an "html" check (e.g. a CSS custom-property signature) *and*
+    # via "scriptSrc" against the actual vendored bootstrap.bundle.min.js
+    # -- both at version=None, so they dedupe to a single Finding. Which
+    # check type happens to run first must not decide whether the
+    # backfill-from-script-content pass downstream (tech_fingerprint)
+    # gets a URL to work with; the script_src must survive regardless.
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "Bootstrap": {
+            "cats": [12],
+            "html": [r"data-bs-signature"],
+            "scriptSrc": [r"bootstrap"],
+        }
+    }
+    response = _response(
+        text=(
+            '<html data-bs-signature="1">'
+            '<script src="assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>'
+            "</html>"
+        )
+    )
+
+    findings = match_technologies("example.com", response, technologies=technologies)
+
+    assert len(findings) == 1
+    assert findings[0].data["source"] == "html"
+    assert findings[0].data["script_src"] == "assets/vendor/bootstrap/js/bootstrap.bundle.min.js"
+
+
 def test_skips_a_definition_whose_only_check_types_are_js_dom_or_css(monkeypatch):
     monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
     technologies = {
@@ -506,3 +569,52 @@ def test_js_and_dom_matches_for_the_same_technology_version_are_deduplicated(mon
 
     assert len(findings) == 1
     assert findings[0].data["source"] == "js"
+
+
+def test_extract_version_from_script_banner_finds_a_bang_comment_version():
+    # Real content captured from artssystem.com.br's self-hosted
+    # bootstrap.bundle.min.js -- no version in the URL, but the file's
+    # own banner comment has it.
+    content = (
+        "/*!\n"
+        "  * Bootstrap v5.3.3 (https://getbootstrap.com/)\n"
+        "  * Copyright 2011-2024 The Bootstrap Authors\n"
+        "  */\n"
+        '!function(t,e){"object"==typeof exports...'
+    )
+    assert wappalyzer.extract_version_from_script_banner("Bootstrap", content) == "5.3.3"
+
+
+def test_extract_version_from_script_banner_finds_a_packaged_style_version():
+    content = (
+        "/*!\n"
+        " * Isotope PACKAGED v3.0.6\n"
+        " *\n"
+        " * Licensed GPLv3 for open source use\n"
+        " */\n"
+    )
+    assert wappalyzer.extract_version_from_script_banner("Isotope", content) == "3.0.6"
+
+
+def test_extract_version_from_script_banner_finds_a_plain_name_then_version():
+    content = "/**\n * Swiper 11.1.0\n * Most modern mobile touch slider\n */\n"
+    assert wappalyzer.extract_version_from_script_banner("Swiper", content) == "11.1.0"
+
+
+def test_extract_version_from_script_banner_returns_none_when_name_is_absent():
+    content = "/*! Some Other Library v9.9.9 */\n"
+    assert wappalyzer.extract_version_from_script_banner("Bootstrap", content) is None
+
+
+def test_extract_version_from_script_banner_returns_none_without_a_version_number():
+    content = "/*! Bootstrap - a responsive framework */\n"
+    assert wappalyzer.extract_version_from_script_banner("Bootstrap", content) is None
+
+
+def test_extract_version_from_script_banner_ignores_a_match_far_past_the_banner():
+    # A version-shaped number deep inside minified code (e.g. part of an
+    # unrelated numeric literal or an unrelated library's own banner
+    # later in a bundle) must not be picked up -- only the top-of-file
+    # banner, where this convention actually lives, counts.
+    content = "x" * 5000 + "Bootstrap v1.2.3"
+    assert wappalyzer.extract_version_from_script_banner("Bootstrap", content) is None

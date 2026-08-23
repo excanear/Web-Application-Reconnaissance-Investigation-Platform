@@ -97,6 +97,78 @@ def test_wordpress_path_probe_still_detects_a_precise_version():
     assert finding.data["category"] == "cms"
 
 
+BOOTSTRAP_SCRIPTSRC_TECH = {
+    "Bootstrap": {"cats": [12], "scriptSrc": [r"bootstrap"]}
+}
+
+
+def test_scriptsrc_match_without_a_version_is_backfilled_from_the_script_content():
+    # Real-world case that motivated this: self-hosted vendor scripts
+    # like "assets/vendor/bootstrap/js/bootstrap.bundle.min.js" carry no
+    # version in the URL, but the file itself has a "/*! Bootstrap
+    # v5.3.3 ... */" banner comment.
+    base = _response(
+        text='<script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>'
+    )
+    script = _response(status_code=200, text="/*!\n * Bootstrap v5.3.3\n */\n!function(){}();")
+
+    def fake_get(url, **kwargs):
+        if url.endswith("bootstrap.bundle.min.js"):
+            return script
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run(
+            "example.com", {"wappalyzer_technologies": BOOTSTRAP_SCRIPTSRC_TECH}
+        )
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["Bootstrap"].data["version"] == "5.3.3"
+    assert by_name["Bootstrap"].data["confidence"] == "high"
+
+
+def test_scriptsrc_match_stays_versionless_when_the_script_has_no_banner_version():
+    base = _response(
+        text='<script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>'
+    )
+    script = _response(status_code=200, text="!function(){/* no version banner here */}();")
+
+    def fake_get(url, **kwargs):
+        if url.endswith("bootstrap.bundle.min.js"):
+            return script
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run(
+            "example.com", {"wappalyzer_technologies": BOOTSTRAP_SCRIPTSRC_TECH}
+        )
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["Bootstrap"].data["version"] is None
+    assert by_name["Bootstrap"].data["confidence"] == "medium"
+
+
+def test_scriptsrc_content_fetch_failure_leaves_the_finding_versionless_without_crashing():
+    import requests
+
+    base = _response(
+        text='<script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>'
+    )
+
+    def fake_get(url, **kwargs):
+        if url.endswith("bootstrap.bundle.min.js"):
+            raise requests.ConnectionError("boom")
+        return base
+
+    with patch("app.modules.tech_fingerprint.requests.get", side_effect=fake_get):
+        findings = TechFingerprintModule().run(
+            "example.com", {"wappalyzer_technologies": BOOTSTRAP_SCRIPTSRC_TECH}
+        )
+
+    by_name = {f.data["name"]: f for f in findings}
+    assert by_name["Bootstrap"].data["version"] is None
+
+
 def test_html_check_detects_frontend_framework_and_version():
     base = _response(text='<html ng-version="17.0.2"><body>hi</body></html>')
 

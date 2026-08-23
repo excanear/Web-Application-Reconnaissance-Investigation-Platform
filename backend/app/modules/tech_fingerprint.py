@@ -1,6 +1,7 @@
 # backend/app/modules/tech_fingerprint.py
 import re
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urljoin
 
 import requests
 
@@ -114,11 +115,58 @@ class TechFingerprintModule(ReconModule):
             audit.record(module=self.name, target=host, outcome=str(response.status_code), url=url)
 
         findings = wappalyzer.match_technologies(host, response, technologies=technologies)
+        for finding in findings:
+            self._backfill_version_from_script_content(finding, host, limiter, audit)
         for rule in PATH_PROBE_RULES:
             finding = self._apply_path_probe_rule(host, rule, limiter, audit)
             if finding is not None:
                 findings.append(finding)
         return findings, True
+
+    def _backfill_version_from_script_content(
+        self, finding: Finding, host: str, limiter: RateLimiter, audit: AuditLog | None
+    ) -> None:
+        """A scriptSrc match with no version (e.g. a self-hosted vendor
+        script whose URL carries no version number) can often still be
+        pinned down by fetching that exact script and reading its own
+        version banner comment -- see
+        wappalyzer.extract_version_from_script_banner. Updates `finding`
+        in place; leaves it untouched on any failure."""
+        script_src = finding.data.get("script_src")
+        if finding.data.get("version") is not None or not script_src:
+            return
+
+        script_url = urljoin(f"https://{host}/", script_src)
+        limiter.wait()
+        try:
+            # Range asks the server to send only the banner-sized prefix
+            # of what can be a multi-hundred-KB minified bundle -- a
+            # server that ignores it just returns the full file (200),
+            # which is still handled fine since only the first bytes of
+            # .text are ever read.
+            response = requests.get(
+                script_url, headers={"Range": "bytes=0-4095"}, timeout=REQUEST_TIMEOUT
+            )
+        except requests.RequestException as exc:
+            if audit is not None:
+                audit.record(
+                    module=self.name, target=host, outcome=f"error: {exc}", url=script_url
+                )
+            return
+
+        if audit is not None:
+            audit.record(
+                module=self.name, target=host, outcome=str(response.status_code), url=script_url
+            )
+        if response.status_code >= 400:
+            return
+
+        version = wappalyzer.extract_version_from_script_banner(
+            finding.data["name"], response.text or ""
+        )
+        if version:
+            finding.data["version"] = version
+            finding.data["confidence"] = "high"
 
     def _apply_path_probe_rule(
         self, host: str, rule: dict, limiter: RateLimiter, audit: AuditLog | None

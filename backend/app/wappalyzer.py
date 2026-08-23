@@ -116,7 +116,15 @@ def _substitute_version(template: str, match: re.Match) -> str | None:
     return result or None
 
 
-def _try_match(name: str, category: str, raw_pattern: str, value: str, host: str, source: str) -> Finding | None:
+def _try_match(
+    name: str,
+    category: str,
+    raw_pattern: str,
+    value: str,
+    host: str,
+    source: str,
+    script_src: str | None = None,
+) -> Finding | None:
     # `raw_pattern` and `value` both originate from externally-sourced
     # data -- the vendored (but upstream-updatable) technologies.json can
     # contain a regex Python's `re` module rejects (re.error), and
@@ -145,8 +153,32 @@ def _try_match(name: str, category: str, raw_pattern: str, value: str, host: str
             "version": version,
             "confidence": "high" if version else "medium",
             "source": source,
+            "script_src": script_src,
         },
     )
+
+
+# Project-specific extension, not a native Wappalyzer check type: many
+# self-hosted vendor scripts carry no version in their URL at all (e.g.
+# "assets/vendor/bootstrap/js/bootstrap.bundle.min.js"), but the exact
+# version is still right there as plain text in the file's own banner
+# comment ("/*! Bootstrap v5.3.3 ... */", "Isotope PACKAGED v3.0.6",
+# "Swiper 11.1.0", ...) -- a convention shared by most JS libraries
+# regardless of how the site vendors them. Only the first 2KB is
+# searched: that convention only ever appears in the banner at the top
+# of the file, and searching the whole (possibly large, minified) file
+# risks matching an unrelated version-shaped number deep inside code.
+_SCRIPT_BANNER_SEARCH_WINDOW = 2000
+
+
+def extract_version_from_script_banner(name: str, content: str) -> str | None:
+    banner = content[:_SCRIPT_BANNER_SEARCH_WINDOW]
+    match = re.search(
+        rf"{re.escape(name)}\D{{0,20}}?\bv?(\d+\.\d+(?:\.\d+){{0,2}})\b",
+        banner,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
 
 
 def _extract_meta(text: str) -> dict:
@@ -345,15 +377,24 @@ def match_technologies(host: str, response, technologies: dict | None = None) ->
     script_srcs = _extract_script_srcs(text)
 
     findings: list[Finding] = []
-    seen: set[tuple[str, str, str | None]] = set()
+    seen: dict[tuple[str, str, str | None], Finding] = {}
 
     def _add(finding: Finding | None) -> None:
         if finding is None:
             return
         key = (finding.value, finding.data["name"], finding.data["version"])
-        if key in seen:
+        existing = seen.get(key)
+        if existing is not None:
+            # A losing duplicate (e.g. an "html" check for the same
+            # technology winning ahead of "scriptSrc" in check-type
+            # order) still carries the script URL a later pass
+            # (tech_fingerprint's version-banner backfill) needs -- keep
+            # it on the surviving Finding instead of discarding it along
+            # with the rest of the duplicate.
+            if not existing.data.get("script_src") and finding.data.get("script_src"):
+                existing.data["script_src"] = finding.data["script_src"]
             return
-        seen.add(key)
+        seen[key] = finding
         findings.append(finding)
 
     for name, definition in technologies.items():
@@ -384,7 +425,9 @@ def match_technologies(host: str, response, technologies: dict | None = None) ->
 
         for raw_pattern in _as_list(definition.get("scriptSrc")):
             for src in script_srcs:
-                finding = _try_match(name, category, raw_pattern, src, host, "scriptSrc")
+                finding = _try_match(
+                    name, category, raw_pattern, src, host, "scriptSrc", script_src=src
+                )
                 if finding:
                     _add(finding)
                     break
