@@ -159,7 +159,12 @@ def _apply_cve_validation(db, scan_id: int, finding) -> None:
     """Merges a cve_validation finding's data into the already-persisted
     cve Finding it confirms (matched by CVE ID + host), instead of
     creating a second row -- one Finding per CVE stays the source of
-    truth for both correlation and validation state."""
+    truth for both correlation and validation state.
+
+    Multiple validators (nuclei_validation, msf_validation, ...) can each
+    independently confirm the same CVE -- this accumulates every tool
+    that confirmed it into `validated_by` rather than the last validator
+    to run silently erasing evidence an earlier one already recorded."""
     host = finding.data.get("host")
     matches = (
         db.query(models.Finding)
@@ -167,7 +172,12 @@ def _apply_cve_validation(db, scan_id: int, finding) -> None:
         .all()
     )
     for row in matches:
-        if row.data.get("host") == host:
-            row.data = {**row.data, **finding.data}
-            db.commit()
-            return
+        if row.data.get("host") != host:
+            continue
+        validated_by = list(row.data.get("validated_by") or [])
+        tool = finding.data.get("tool")
+        if tool and tool not in validated_by:
+            validated_by.append(tool)
+        row.data = {**row.data, **finding.data, "validated_by": validated_by}
+        db.commit()
+        return

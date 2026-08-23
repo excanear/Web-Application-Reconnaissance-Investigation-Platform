@@ -101,6 +101,23 @@ def test_uses_the_nuclei_remediation_text_for_a_confirmed_cve():
     assert data.cves[0].remediation == "Upgrade to 2.0."
 
 
+def test_combines_evidence_from_both_validators_when_two_tools_confirmed_the_cve():
+    scan_id = _make_scan(
+        [{"value": "CVE-MULTI", "data": {
+            "cvss_score": 9.0, "severity": "CRITICAL", "status": "confirmed",
+            "description_en": "d", "matched_technology": "nginx",
+            "matched_technology_version": "1.18.0", "host": "example.com",
+            "validated_by": ["nuclei", "metasploit"],
+            "confirmation_note_en": "Confirmed via nuclei.",
+            "msf_confirmation_note_en": "Confirmed via Metasploit.",
+        }}]
+    )
+
+    data = build_report_data(scan_id, "en")
+
+    assert data.cves[0].evidence == "Confirmed via nuclei. | Confirmed via Metasploit."
+
+
 def test_falls_back_to_the_legacy_description_field_and_suspected_status():
     scan_id = _make_scan(
         [{"value": "CVE-LEGACY", "data": {

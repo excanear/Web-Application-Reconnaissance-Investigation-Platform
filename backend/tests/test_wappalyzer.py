@@ -1,7 +1,13 @@
 import re
 
 from app import wappalyzer
-from app.wappalyzer import _parse_pattern, _substitute_version, match_technologies
+from app.wappalyzer import (
+    _parse_pattern,
+    _substitute_version,
+    collect_browser_probe_requirements,
+    match_browser_technologies,
+    match_technologies,
+)
 
 
 def _response(headers=None, cookies=None, text=""):
@@ -272,3 +278,231 @@ def test_a_malformed_pattern_in_one_technology_does_not_abort_matching_the_rest(
     assert len(findings) == 1
     assert findings[0].data["name"] == "nginx"
     assert findings[0].data["version"] == "1.18.0"
+
+
+# --- collect_browser_probe_requirements -----------------------------------
+
+
+def test_collects_and_dedupes_js_paths_across_technologies():
+    technologies = {
+        "A-Frame": {"cats": [12], "js": {"AFRAME.version": "", "aframeStats": ""}},
+        "Other": {"cats": [12], "js": {"aframeStats": ""}},
+    }
+
+    reqs = collect_browser_probe_requirements(technologies)
+
+    assert reqs.js_paths == ["AFRAME.version", "aframeStats"]
+
+
+def test_collects_list_form_dom_selectors():
+    technologies = {"A8.net": {"cats": [1], "dom": ["img[src*='.a8.net']"]}}
+
+    reqs = collect_browser_probe_requirements(technologies)
+
+    assert reqs.dom_selectors == ["img[src*='.a8.net']"]
+    assert reqs.dom_selector_specs == {}
+
+
+def test_collects_dict_form_dom_selectors_with_attributes_and_properties():
+    technologies = {
+        "Angular": {
+            "cats": [12],
+            "dom": {"[ng-version]": {"attributes": {"ng-version": r"^([\d\.]+)\;version:\1"}}},
+        },
+        "Amazon Associates": {
+            "cats": [1],
+            "dom": {
+                "a[href*='amazon.com']": {"attributes": {"href": "tag="}},
+                "input.qty": {"properties": {"value": ""}},
+            },
+        },
+    }
+
+    reqs = collect_browser_probe_requirements(technologies)
+
+    assert set(reqs.dom_selectors) == {"[ng-version]", "a[href*='amazon.com']", "input.qty"}
+    assert reqs.dom_selector_specs["[ng-version]"] == {"attributes": ["ng-version"], "properties": []}
+    assert reqs.dom_selector_specs["input.qty"] == {"attributes": [], "properties": ["value"]}
+
+
+def test_needs_css_is_true_only_when_a_technology_declares_a_css_check():
+    assert collect_browser_probe_requirements({"A": {"cats": [1], "css": [".foo"]}}).needs_css is True
+    assert collect_browser_probe_requirements({"A": {"cats": [1], "js": {"x": ""}}}).needs_css is False
+
+
+# --- match_browser_technologies --------------------------------------------
+
+
+def test_matches_a_js_global_and_extracts_the_version(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"A-Frame": {"cats": [12], "js": {"AFRAME.version": r"^(.+)$\;version:\1"}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={"AFRAME.version": "1.4.0"}, dom_results={}, css_text="",
+        technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "A-Frame"
+    assert findings[0].data["version"] == "1.4.0"
+    assert findings[0].data["source"] == "js"
+
+
+def test_js_global_absent_produces_no_finding(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"A-Frame": {"cats": [12], "js": {"AFRAME.version": ""}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={}, css_text="", technologies=technologies,
+    )
+
+    assert findings == []
+
+
+def test_matches_a_list_form_dom_selector_on_presence_alone(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"A8.net": {"cats": [1], "dom": ["img[src*='.a8.net']"]}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={"img[src*='.a8.net']": {"text": "", "attributes": {}, "properties": {}}},
+        css_text="", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "A8.net"
+    assert findings[0].data["version"] is None
+    assert findings[0].data["source"] == "dom"
+
+
+def test_list_form_dom_selector_absent_produces_no_finding(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"A8.net": {"cats": [1], "dom": ["img[src*='.a8.net']"]}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={"img[src*='.a8.net']": None},
+        css_text="", technologies=technologies,
+    )
+
+    assert findings == []
+
+
+def test_matches_a_dict_form_dom_attribute_and_extracts_the_version(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "Angular": {
+            "cats": [12],
+            "dom": {"[ng-version]": {"attributes": {"ng-version": r"^([\d\.]+)\;version:\1"}}},
+        }
+    }
+
+    findings = match_browser_technologies(
+        "example.com", js_values={},
+        dom_results={"[ng-version]": {"text": "", "attributes": {"ng-version": "17.0.2"}, "properties": {}}},
+        css_text="", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "Angular"
+    assert findings[0].data["version"] == "17.0.2"
+    assert findings[0].data["source"] == "dom"
+
+
+def test_matches_a_dict_form_dom_exists_check(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"All in One SEO": {"cats": [1], "dom": {"script.aioseo-schema": {"exists": ""}}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={},
+        dom_results={"script.aioseo-schema": {"text": "", "attributes": {}, "properties": {}}},
+        css_text="", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "All in One SEO"
+
+
+def test_matches_a_dict_form_dom_property(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"QtyWidget": {"cats": [1], "dom": {"input.qty": {"properties": {"value": r"^(\d+)$\;version:\1"}}}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={},
+        dom_results={"input.qty": {"text": "", "attributes": {}, "properties": {"value": "3"}}},
+        css_text="", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["version"] == "3"
+
+
+def test_matches_a_dict_form_dom_text(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"Banner": {"cats": [1], "dom": {".powered-by": {"text": "Powered by Ghost"}}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={},
+        dom_results={".powered-by": {"text": "Powered by Ghost", "attributes": {}, "properties": {}}},
+        css_text="", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "Banner"
+
+
+def test_matches_a_css_pattern_against_the_full_stylesheet_text(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"Material UI": {"cats": [12], "css": [r"\.MuiPaper-root"]}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={},
+        css_text=".MuiPaper-root { padding: 8px; }", technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["name"] == "Material UI"
+    assert findings[0].data["source"] == "css"
+
+
+def test_css_pattern_not_present_in_stylesheet_produces_no_finding(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"Material UI": {"cats": [12], "css": [r"\.MuiPaper-root"]}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={}, css_text="body { color: red; }",
+        technologies=technologies,
+    )
+
+    assert findings == []
+
+
+def test_a_definition_with_only_http_checks_is_ignored_by_the_browser_matcher(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {"nginx": {"cats": [18], "headers": {"Server": "nginx"}}}
+
+    findings = match_browser_technologies(
+        "example.com", js_values={}, dom_results={}, css_text="", technologies=technologies,
+    )
+
+    assert findings == []
+
+
+def test_js_and_dom_matches_for_the_same_technology_version_are_deduplicated(monkeypatch):
+    monkeypatch.setattr(wappalyzer, "load_categories", lambda: CATEGORIES)
+    technologies = {
+        "Foo": {
+            "cats": [12],
+            "js": {"Foo.version": r"^(.+)$\;version:\1"},
+            "dom": {"[foo-version]": {"attributes": {"foo-version": r"^(.+)$\;version:\1"}}},
+        }
+    }
+
+    findings = match_browser_technologies(
+        "example.com",
+        js_values={"Foo.version": "2.0"},
+        dom_results={"[foo-version]": {"text": "", "attributes": {"foo-version": "2.0"}, "properties": {}}},
+        css_text="",
+        technologies=technologies,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].data["source"] == "js"

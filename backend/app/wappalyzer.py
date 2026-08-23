@@ -9,11 +9,16 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 TECHNOLOGIES_PATH = os.path.join(DATA_DIR, "technologies.json")
 CATEGORIES_PATH = os.path.join(DATA_DIR, "categories.json")
 
-# Only these check types can be evaluated from a single HTTP GET response
-# without a real browser -- js (global JS variables), dom (element
-# selectors), and css (computed styles) all require actually executing
-# the page, which this tool deliberately never does.
+# These check types can be evaluated from a single HTTP GET response
+# without a real browser.
 SUPPORTED_CHECK_TYPES = ("headers", "cookies", "meta", "html", "scriptSrc")
+
+# js (global JS variables), dom (element selectors/attributes/text/props),
+# and css (stylesheet text) all require actually executing the page --
+# app.modules.browser_fingerprint drives a headless browser to gather the
+# raw signals these checks match against; match_browser_technologies below
+# stays a pure function over those signals so it's testable without one.
+BROWSER_CHECK_TYPES = ("js", "dom", "css")
 
 _technologies_cache: dict | None = None
 _categories_cache: dict | None = None
@@ -171,6 +176,151 @@ def _as_list(value) -> list:
 
 def _has_supported_check(definition: dict) -> bool:
     return any(key in definition for key in SUPPORTED_CHECK_TYPES)
+
+
+def _has_browser_check(definition: dict) -> bool:
+    return any(key in definition for key in BROWSER_CHECK_TYPES)
+
+
+@dataclass
+class BrowserProbeRequirements:
+    """What a headless browser needs to gather from one page so every
+    js/dom/css technology definition can be matched against it -- three
+    values regardless of how many thousand technologies define such a
+    check, so the driving module (app.modules.browser_fingerprint) makes
+    at most three page.evaluate() round trips per host."""
+
+    js_paths: list[str]
+    dom_selectors: list[str]
+    dom_selector_specs: dict[str, dict]
+    needs_css: bool
+
+
+def collect_browser_probe_requirements(technologies: dict | None = None) -> BrowserProbeRequirements:
+    if technologies is None:
+        technologies = load_technologies()
+
+    js_paths: set[str] = set()
+    dom_selectors: set[str] = set()
+    dom_selector_specs: dict[str, dict] = {}
+    needs_css = False
+
+    for definition in technologies.values():
+        js_paths.update(definition.get("js", {}).keys())
+
+        dom = definition.get("dom")
+        if isinstance(dom, list):
+            dom_selectors.update(s for s in dom if isinstance(s, str))
+        elif isinstance(dom, dict):
+            for selector, spec in dom.items():
+                if not isinstance(spec, dict):
+                    continue
+                dom_selectors.add(selector)
+                entry = dom_selector_specs.setdefault(
+                    selector, {"attributes": set(), "properties": set()}
+                )
+                entry["attributes"].update(spec.get("attributes", {}).keys())
+                entry["properties"].update(spec.get("properties", {}).keys())
+
+        if "css" in definition:
+            needs_css = True
+
+    return BrowserProbeRequirements(
+        js_paths=sorted(js_paths),
+        dom_selectors=sorted(dom_selectors),
+        dom_selector_specs={
+            sel: {"attributes": sorted(spec["attributes"]), "properties": sorted(spec["properties"])}
+            for sel, spec in dom_selector_specs.items()
+        },
+        needs_css=needs_css,
+    )
+
+
+def _stringify_browser_value(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return str(value)
+    return str(value)
+
+
+def match_browser_technologies(
+    host: str,
+    js_values: dict,
+    dom_results: dict,
+    css_text: str,
+    technologies: dict | None = None,
+) -> list[Finding]:
+    """Matches every js/dom/css technology definition against browser
+    signals already gathered for `host`. Pure function, deliberately
+    unaware of Playwright/how the signals were collected -- a headless
+    browser driver just needs to shape its findings as:
+
+    - js_values: {dotted.path: <JSON-safe value or None if undefined>}
+    - dom_results: {selector: None | {"text": str, "attributes": {attr:
+      value}, "properties": {prop: value}} for the first matching element}
+    - css_text: concatenated text of every stylesheet rule + <style> tag
+      on the page
+    """
+    if technologies is None:
+        technologies = load_technologies()
+    categories = load_categories()
+
+    findings: list[Finding] = []
+    seen: set[tuple[str, str, str | None]] = set()
+
+    def _add(finding: Finding | None) -> None:
+        if finding is None:
+            return
+        key = (finding.value, finding.data["name"], finding.data["version"])
+        if key in seen:
+            return
+        seen.add(key)
+        findings.append(finding)
+
+    for name, definition in technologies.items():
+        if not _has_browser_check(definition):
+            continue
+        category = _category_name(definition.get("cats", []), categories)
+
+        for path, raw_pattern in definition.get("js", {}).items():
+            value = _stringify_browser_value(js_values.get(path))
+            if value is None:
+                continue
+            _add(_try_match(name, category, raw_pattern, value, host, "js"))
+
+        dom = definition.get("dom")
+        if isinstance(dom, list):
+            for selector in dom:
+                if not isinstance(selector, str) or dom_results.get(selector) is None:
+                    continue
+                _add(_try_match(name, category, "", "present", host, "dom"))
+        elif isinstance(dom, dict):
+            for selector, spec in dom.items():
+                if not isinstance(spec, dict):
+                    continue
+                element = dom_results.get(selector)
+                if element is None:
+                    continue
+                if "exists" in spec:
+                    _add(_try_match(name, category, "", "present", host, "dom"))
+                if "text" in spec:
+                    text_value = _stringify_browser_value(element.get("text"))
+                    if text_value is not None:
+                        _add(_try_match(name, category, spec["text"], text_value, host, "dom"))
+                for attr, attr_pattern in spec.get("attributes", {}).items():
+                    attr_value = _stringify_browser_value(element.get("attributes", {}).get(attr))
+                    if attr_value is not None:
+                        _add(_try_match(name, category, attr_pattern, attr_value, host, "dom"))
+                for prop, prop_pattern in spec.get("properties", {}).items():
+                    prop_value = _stringify_browser_value(element.get("properties", {}).get(prop))
+                    if prop_value is not None:
+                        _add(_try_match(name, category, prop_pattern, prop_value, host, "dom"))
+
+        for raw_pattern in _as_list(definition.get("css")):
+            _add(_try_match(name, category, raw_pattern, css_text, host, "css"))
+
+    return findings
 
 
 def match_technologies(host: str, response, technologies: dict | None = None) -> list[Finding]:

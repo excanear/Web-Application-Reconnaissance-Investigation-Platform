@@ -135,6 +135,7 @@ class NucleiValidationModule(ReconModule):
         data = {
             "host": host,
             "status": "confirmed",
+            "tool": "nuclei",
             "nuclei_template_id": template_id,
             "matched_at": matched_at,
             "confirmation_note_en": i18n.t(

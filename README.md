@@ -12,7 +12,7 @@ para manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
-[![Testes](https://img.shields.io/badge/testes-243%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Testes](https://img.shields.io/badge/testes-281%20passando-2ea44f?style=for-the-badge)](#testes)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
@@ -58,19 +58,23 @@ Você fornece um domínio. A ferramenta:
 passiva agregada, permutação de wordlist sobre o que já foi encontrado.
 
 **2. Sonda ativamente** o alvo e cada subdomínio contra um motor de
-fingerprint orientado por dados — mais de **7.500 tecnologias** via um
-dataset vendorizado do Wappalyzer — extraindo a **versão exata** sempre
-que ela vaza por headers, cookies, tags `generator` ou arquivos de
-changelog/manifest expostos.
+fingerprint orientado por dados — **7.586 tecnologias**, 100% do dataset
+vendorizado do Wappalyzer — extraindo a **versão exata** sempre que ela
+vaza por headers, cookies, tags `generator`, arquivos de
+changelog/manifest expostos, ou (via um Chromium headless opcional)
+variáveis JavaScript globais, seletores DOM e regras de stylesheet — as
+checagens que uma requisição HTTP crua estruturalmente não alcança.
 
 **3. Correlaciona** cada tecnologia com versão conhecida contra a API
 real da NVD, filtrando por faixa de CPE — não é busca textual solta, é
 verificação estrutural de que aquela versão específica realmente cai
 dentro da faixa vulnerável da CVE.
 
-**4. Valida ativamente** um subconjunto das CVEs correlacionadas via
-templates comunitários do `nuclei`, promovendo o status de `suspected`
-para `confirmed` quando a exploração é reproduzida de forma segura.
+**4. Valida ativamente** um subconjunto das CVEs correlacionadas com
+**dois motores independentes** — templates comunitários do `nuclei` e a
+ação `check` do Metasploit Framework — promovendo o status de
+`suspected` para `confirmed` assim que qualquer um dos dois reproduz a
+exploração de forma segura.
 
 **5. Imprime um relatório** no terminal, agrupado por Tecnologias, CVEs
 (ordenadas por CVSS decrescente, severidade colorida) e outros achados —
@@ -81,32 +85,36 @@ Sem frontend, sem API HTTP, sem Celery, sem Redis, sem Docker.
 
 ```mermaid
 flowchart LR
-    A["`**recon scan**
+    A["`**webscan scan**
     domínio + escopo`"] --> B{"`Descoberta
     _run_order 10_`"}
     B --> C["crt.sh"] & D["subfinder"] & E["permutação
     de wordlist"]
     C & D & E --> F{"`Análise ativa
-    _run_order 50_`"}
+    _run_order 50/55_`"}
     F --> G["httpx"] & H["`**tech_fingerprint**
-    +7.500 tecnologias`"] & I["cloud_range"] & J["whois"]
-    G & H & I & J --> K{"`Correlação
+    HTTP: 5.252 tecnologias`"] & H2["`**browser_fingerprint**
+    Chromium: +2.334 via js/dom/css`"] & I["cloud_range"] & J["whois"]
+    G & H & H2 & I & J --> K{"`Correlação
     _run_order 90_`"}
     K --> L["`**cve_correlation**
     NVD real, por CPE`"]
-    L --> M{"`Validação
-    _run_order 95_`"}
+    L --> M{"`Validação ativa
+    _run_order 95/96_`"}
     M --> N["`**nuclei_validation**
-    suspected → confirmed`"]
-    N --> O[("`SQLite
+    templates por ID de CVE`"] & N2["`**msf_validation**
+    check do Metasploit`"]
+    N & N2 --> O[("`SQLite
     local`")]
     O --> P["`Relatório
     terminal · CSV · PDF`"]
 
     style A fill:#1f6f63,stroke:#0f3f38,color:#fff
     style H fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style H2 fill:#1f6f63,stroke:#0f3f38,color:#fff
     style L fill:#1f6f63,stroke:#0f3f38,color:#fff
     style N fill:#1f6f63,stroke:#0f3f38,color:#fff
+    style N2 fill:#1f6f63,stroke:#0f3f38,color:#fff
     style O fill:#2b2b2b,stroke:#000,color:#fff
     style P fill:#2b2b2b,stroke:#000,color:#fff
 ```
@@ -519,6 +527,31 @@ Toda invocação do `nuclei` exclui templates com tag `dos`, `fuzz` e
 `intrusive` incondicionalmente — é um limite de segurança fixo no
 código, não uma configuração.
 
+### Instalar o Metasploit Framework (opcional, segundo validador ativo de CVE)
+
+`msf_validation` é um segundo motor de confirmação ativa, independente
+do `nuclei` — ele busca um módulo do Metasploit para a CVE
+(`search cve:<id>`) e roda a ação `check` desse módulo contra o host,
+que é a rotina não-destrutiva do próprio Metasploit para confirmar
+vulnerabilidade sem explorar de fato. Sem o `msfconsole` instalado, esse
+módulo registra um único achado `module_error` e a validação segue só
+com o `nuclei` — nenhum dos dois módulos depende do outro.
+
+1. Instale o Metasploit Framework:
+   https://docs.metasploit.com/docs/using-metasploit/getting-started/nightly-installers.html
+2. Confirme que `msfconsole` está no PATH: `msfconsole -v`
+
+> [!NOTE]
+> `msf_validation` só confirma CVEs cujo módulo do Metasploit expõe um
+> serviço HTTP(S) na porta 443 — `RHOSTS`/`RPORT 443`/`SSL true` são os
+> únicos parâmetros que esta ferramenta tem contexto pra preencher, já
+> que ela só investiga ativos web. Um módulo que precise de outra
+> porta/serviço (SMB, RDP, um datastore extra) reporta "inconclusive" em
+> vez de uma falsa confirmação.
+
+Como o `nuclei`, o Metasploit não é vendorizado — é uma instalação
+separada do operador, e sua ausência nunca derruba o scan.
+
 ### Atualizar o dataset de fingerprint de tecnologias
 
 `tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
@@ -533,7 +566,7 @@ O dataset vendorizado (`backend/app/data/technologies.json`,
 fica desatualizado com o tempo. Atualize com:
 
 ```
-recon update-fingerprints
+webscan update-fingerprints
 ```
 
 É uma operação de manutenção local — não toca em nenhum alvo, não
@@ -541,20 +574,57 @@ precisa de `--authorized`/`--confirm-active`, mesma postura do `nuclei
 -update-templates`. Uma falha de rede deixa os arquivos vendorizados
 existentes intocados.
 
+`tech_fingerprint` cobre as checagens `headers`/`cookies`/`meta`/`html`/
+`scriptSrc` — o que dá pra extrair de uma única resposta HTTP. As
+checagens `js` (variável JavaScript global), `dom` (seletor de elemento,
+atributo, texto ou propriedade) e `css` (regra de stylesheet) exigem uma
+página de verdade renderizada — cerca de um terço das ~7.500 entradas do
+dataset dependem só desses três tipos. O módulo `browser_fingerprint`
+(veja abaixo) fecha essa lacuna rodando um Chromium headless via
+Playwright; com o Chromium instalado, **100% das checagens do dataset
+Wappalyzer vendorizado são avaliadas**, não só as compatíveis com HTTP
+puro.
+
 > [!NOTE]
-> **Limitações conhecidas:** só tecnologias detectáveis a partir de uma
-> única resposta HTTP (headers/cookies/meta tags/corpo HTML/URLs de
-> `<script src>`) são suportadas. Entradas do Wappalyzer que só oferecem
-> checagens `js` (variável JavaScript global), `dom` (seletor de
-> elemento) ou `css` (estilo computado) exigem uma página realmente
-> renderizada e são ignoradas por completo — esta ferramenta nunca roda
-> um navegador. Tecnologias recém-detectadas cujo nome de exibição não
-> bate com o nome de produto no CPE da NVD ainda não correlacionam
-> CVE — gap conhecido, não é bug.
+> **Limitação conhecida:** tecnologias recém-detectadas cujo nome de
+> exibição não bate com o nome de produto no CPE da NVD ainda não
+> correlacionam CVE — gap conhecido, não é bug.
 
 Os dados do Wappalyzer têm licença CC BY-SA 4.0 dos seus contribuidores;
 a cópia vendorizada neste repositório é um espelho direto, sem
-modificações.
+modificações, do fork mantido pela comunidade
+([enthec/webappanalyzer](https://github.com/enthec/webappanalyzer)) —
+que hoje soma **7.586 tecnologias**, buscadas 100% via
+`webscan update-fingerprints` (todos os 27 shards `a.json`...`z.json` +
+`_.json` do repositório, sem amostragem). O número "8.122" divulgado em
+wappalyzer.com/technologies reflete adições feitas só na base comercial
+fechada da Wappalyzer Inc. desde que o projeto saiu de código aberto em
+2023 — não existe uma fonte pública equivalente a essas ~500 entradas
+extras; o dataset vendorizado aqui já é o maior espelho aberto
+disponível, e esta ferramenta consome 100% dele.
+
+### Instalar o Chromium do Playwright (opcional, necessário para fingerprint via navegador)
+
+`browser_fingerprint` roda as checagens `js`/`dom`/`css` do dataset
+Wappalyzer que uma resposta HTTP crua não consegue satisfazer — ele
+carrega cada host num Chromium headless real e lê variáveis JS globais,
+seletores DOM (existência/texto/atributo/propriedade) e o texto das
+folhas de estilo carregadas. Sem o Chromium instalado, esse módulo
+registra um único achado `module_error` e o scan segue normalmente com
+o restante do fingerprint feito por `tech_fingerprint`.
+
+```bash
+# Linux (inclui as bibliotecas de sistema necessárias, pede sudo uma vez)
+playwright install --with-deps chromium
+```
+
+```powershell
+# Windows/macOS (normalmente já tem as bibliotecas necessárias)
+playwright install chromium
+```
+
+`is_active = True`: exige `--confirm-active`, mesma postura de
+`tech_fingerprint`.
 
 ### Configurar uma chave de API da NVD (opcional, recomendado)
 
@@ -626,7 +696,7 @@ os resultados (ordem dos achados, qual host dispara um trip do circuit
 breaker, a contagem de `skipped_hosts`) são idênticos byte a byte a
 antes dessa flag existir. Com `--max-workers` acima de `1`, essa
 contabilidade continua totalmente determinística — só a ordem das
-entradas do `recon audit` para hosts processados no mesmo lote pode
+entradas do `webscan audit` para hosts processados no mesmo lote pode
 variar entre execuções, nunca o conteúdo.
 
 Módulos que sondam um host checam o escopo declarado primeiro — um host
@@ -655,16 +725,16 @@ contra o alvo ou a NVD.
 
 ### Exportar um relatório
 
-`recon report <scan_id>` por padrão gera a tabela no terminal mostrada
+`webscan report <scan_id>` por padrão gera a tabela no terminal mostrada
 acima. Dois formatos adicionais estão disponíveis:
 
-- `recon report <scan_id> --format csv` — uma linha por achado de CVE
+- `webscan report <scan_id> --format csv` — uma linha por achado de CVE
   (`cve, severity, cvss, epss, status, technology, host, description,
   evidence, remediation`), escrita no stdout. Os nomes das colunas são
   fixos e em inglês independente de `--lang`, seguindo a mesma
-  convenção do `recon audit --format csv` — CSV é para
+  convenção do `webscan audit --format csv` — CSV é para
   máquinas/planilhas, não para o idioma de exibição da CLI.
-- `recon report <scan_id> --format pdf [--output CAMINHO]` — um PDF
+- `webscan report <scan_id> --format pdf [--output CAMINHO]` — um PDF
   autocontido (resumo executivo, tecnologias detectadas e CVEs
   priorizadas por CVSS com EPSS como desempate), localizado conforme
   `--lang`. Sem `--output`/`-o`, o arquivo é gravado como
@@ -745,13 +815,15 @@ registro da autorização declarada.
 ## Como funciona por dentro
 
 ```text
-recon scan → cria Project + Scan (SQLite)
+webscan scan → cria Project + Scan (SQLite)
            → orchestrator.run_scan(scan_id)
                 → itera MODULE_REGISTRY ordenado por run_order
                      10  descoberta     (crtsh, subfinder, subdomain_permutation)
                      50  análise        (cloud_range, httpx_probe, tech_fingerprint, whois)
+                     55  análise        (browser_fingerprint)
                      90  correlação     (cve_correlation)
                      95  validação      (nuclei_validation)
+                     96  validação      (msf_validation)
                 → cada módulo recebe (target, context) e devolve Finding[]
                 → context["subdomains"] e context["technologies"] acumulam
                   conforme os módulos rodam, alimentando os próximos
@@ -775,10 +847,12 @@ arquivo e importá-lo em `app/modules/__init__.py`.
 | `subdomain_permutation` | 10 | — | Gera candidatos combinando uma wordlist de nomes comuns (dev, staging, admin, api, vpn...) com subdomínios já descobertos |
 | `cloud_range` | 50 | — | Resolve cada host via DNS e verifica se o IP cai dentro de uma faixa conhecida da AWS/GCP/Azure |
 | `httpx_probe` | 50 | **sim** | Visita cada host candidato via HTTP real, confirma quais estão vivos, faz fingerprinting básico via `httpx -tech-detect` |
-| `tech_fingerprint` | 50 | **sim** | Detecção de tecnologia orientada por Wappalyzer com sondas de path ativas — veja a seção dedicada abaixo |
+| `tech_fingerprint` | 50 | **sim** | Detecção de tecnologia orientada por Wappalyzer (checagens HTTP) com sondas de path ativas — veja a seção dedicada abaixo |
 | `whois` | 50 | — | Consulta os dados reais de registro do domínio |
+| `browser_fingerprint` | 55 | **sim** | Detecção de tecnologia via Chromium headless (Playwright) para as checagens `js`/`dom`/`css` do Wappalyzer que uma resposta HTTP não alcança |
 | `cve_correlation` | 90 | — | Correlaciona cada tecnologia com versão conhecida contra a API real da NVD |
 | `nuclei_validation` | 95 | **sim** | Roda templates `nuclei` casados por ID de CVE contra achados `suspected`, excluindo templates com tag `dos`/`fuzz`/`intrusive` |
+| `msf_validation` | 96 | **sim** | Busca um módulo do Metasploit por CVE (`search cve:<id>`) e roda sua ação `check` contra o host — segundo motor de confirmação, independente do `nuclei` |
 
 "Ativo" = envia requisições diretamente contra o alvo/subdomínios, além
 de só consultar serviços de terceiros. Módulos ativos exigem
@@ -786,12 +860,18 @@ de só consultar serviços de terceiros. Módulos ativos exigem
 
 ## Fingerprint de tecnologias
 
-`tech_fingerprint` detecta tecnologias usando uma cópia vendorizada do
-dataset do [Wappalyzer](https://github.com/enthec/webappanalyzer)
-(milhares de tecnologias, mantido pela comunidade) mais sondas ativas
-próprias do projeto. Veja
+`tech_fingerprint` + `browser_fingerprint` juntos detectam tecnologias
+usando uma cópia vendorizada do dataset do
+[Wappalyzer](https://github.com/enthec/webappanalyzer) (7.586
+tecnologias, mantido pela comunidade) mais sondas ativas próprias do
+projeto — `tech_fingerprint` cobre as checagens `headers`/`cookies`/
+`meta`/`html`/`scriptSrc` a partir de uma única resposta HTTP (5.252
+tecnologias), `browser_fingerprint` cobre `js`/`dom`/`css` via Chromium
+headless (as ~2.334 tecnologias restantes, que só se revelam depois que
+o JavaScript da página roda de verdade). Veja
 [Atualizar o dataset de fingerprint de tecnologias](#atualizar-o-dataset-de-fingerprint-de-tecnologias)
-acima para como atualizar o dataset e suas limitações conhecidas.
+e [Instalar o Chromium do Playwright](#instalar-o-chromium-do-playwright-opcional-necessário-para-fingerprint-via-navegador)
+acima para como manter os dois atualizados.
 
 Fingerprint de banco de dados é deliberadamente limitado a sinais
 indiretos (cookies, headers, mensagens de erro já expostas) — detecção
@@ -820,12 +900,17 @@ contra a API de produção da NVD.
 A coluna **Status** de cada CVE no relatório mostra `suspected` ou
 `confirmed`. `suspected` significa que a versão cai dentro da faixa de
 CPE da CVE segundo a NVD — resultado só da correlação estrutural.
-`confirmed` significa que `nuclei_validation` rodou um template
-mantido pela comunidade para aquela CVE contra o alvo e o template
-reportou um resultado positivo, confirmando que a vulnerabilidade pode
-realmente ser reproduzida via uma checagem segura (sem exploração,
-só detecção). A coluna **Evidence** para CVEs confirmadas mostra qual ID
-de template do `nuclei` bateu e em qual timestamp.
+`confirmed` significa que **pelo menos um** dos dois motores de
+validação ativa — `nuclei_validation` (template comunitário casado por
+ID de CVE) ou `msf_validation` (ação `check` de um módulo do Metasploit
+para a mesma CVE) — reportou um resultado positivo contra o alvo,
+confirmando que a vulnerabilidade pode realmente ser reproduzida via uma
+checagem segura (sem exploração, só detecção). Os dois motores rodam de
+forma independente e aditiva: se ambos confirmarem a mesma CVE, o campo
+`validated_by` do achado lista as duas ferramentas
+(`["nuclei", "metasploit"]`), e a coluna **Evidence** do relatório junta
+a evidência de cada uma — o ID do template `nuclei` que bateu, e/ou o
+módulo do Metasploit cujo `check` confirmou.
 
 ## Configuração
 
@@ -880,19 +965,24 @@ cd backend
 pytest -v
 ```
 
-**243 testes**, cobrindo cada módulo isoladamente (mockando chamadas
-externas), o orquestrador (isolamento de falha por módulo, ordenação
-por `run_order`, propagação de contexto), comportamento de rate
-limiting/circuit breaker sob concorrência real (múltiplas threads
-disputando os mesmos primitivos compartilhados), e a CLI
-(`typer.testing.CliRunner`, mockando o orquestrador para não depender da
-rede).
+**281 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+externas, incluindo o Playwright do `browser_fingerprint` e o
+`msfconsole` do `msf_validation`), o orquestrador (isolamento de falha
+por módulo, ordenação por `run_order`, propagação de contexto,
+acumulação de `validated_by` quando dois validadores confirmam a mesma
+CVE), comportamento de rate limiting/circuit breaker sob concorrência
+real (múltiplas threads disputando os mesmos primitivos compartilhados),
+e a CLI (`typer.testing.CliRunner`, mockando o orquestrador para não
+depender da rede).
 
 ## Limitações conhecidas
 
 - **`subfinder`/`httpx` exigem instalação manual** de ferramentas Go
   externas — sem elas, esses dois módulos específicos ficam limitados
-  (viram `module_error`, o resto do scan continua normal).
+  (viram `module_error`, o resto do scan continua normal). O mesmo vale
+  para o Chromium do Playwright (`browser_fingerprint`), o `nuclei`
+  (`nuclei_validation`) e o Metasploit (`msf_validation`) — todos
+  opcionais, nenhum derruba o scan quando ausente.
 - **Sem cache de CVE** — toda consulta à NVD é uma chamada de rede nova,
   mesmo repetindo o mesmo alvo/tecnologia entre scans.
 - **`subdomain_permutation` gera candidatos não confirmados** — eles
@@ -902,14 +992,25 @@ rede).
 - **Alguns nomes de cookie usados como regex** no dataset do Wappalyzer
   (Drupal, ASP.NET, Joomla...) são checados literalmente — algumas
   entradas silenciosamente não disparam.
-- **Sem cache de página renderizada** — tecnologias que só se revelam
-  via JavaScript executado (parte do gap de detecção do Next.js App
-  Router, por exemplo) não são cobertas, já que a ferramenta nunca roda
-  um navegador.
+- **`browser_fingerprint` roda sequencialmente**, um host por vez dentro
+  de uma única instância de Chromium — ao contrário de
+  `tech_fingerprint`, ele ainda não usa `--max-workers` para paralelizar
+  entre hosts.
+- **`msf_validation` só cobre módulos HTTP(S) na porta 443** — ele
+  preenche `RHOSTS`/`RPORT 443`/`SSL true` porque é o único contexto de
+  serviço que esta ferramenta (focada em ativos web) já tem; um módulo
+  do Metasploit para outro serviço (SMB, RDP, etc.) reporta
+  "inconclusive" em vez de uma falsa confirmação.
+- **8.122 vs. 7.586 tecnologias** — o número divulgado em
+  wappalyzer.com/technologies inclui adições feitas só na base comercial
+  fechada da Wappalyzer Inc. desde 2023; não existe fonte pública
+  equivalente às ~500 entradas de diferença, e esta ferramenta já
+  consome 100% do maior dataset aberto disponível
+  ([enthec/webappanalyzer](https://github.com/enthec/webappanalyzer)).
 
 ## Roadmap
 
-Progresso do roadmap enterprise-grade — **8 de 8 fases concluídas**:
+Progresso do roadmap enterprise-grade — **9 de 9 fases concluídas**:
 
 | Fase | Entrega | Status |
 |:---:|---|:---:|
@@ -921,17 +1022,20 @@ Progresso do roadmap enterprise-grade — **8 de 8 fases concluídas**:
 | F | Relatório profissional + exportação PDF/CSV | ✅ |
 | G | Cobertura de fingerprint ampliada (motor Wappalyzer, +7.500 tecnologias) | ✅ |
 | H | Execução em escala — concorrência local controlada (`--max-workers`) | ✅ |
+| I | Fingerprint via navegador (`browser_fingerprint`, 100% do dataset Wappalyzer) + segundo validador ativo de CVE (`msf_validation`, Metasploit) | ✅ |
 
 **Próximos passos considerados** (sem fase formal ainda):
 
 - Cache de resultado de CVE entre scans
 - Fingerprint por hash de favicon
 - Cobertura para mais plataformas de hosting/CDN (Vercel, Netlify,
-  Render) e Next.js App Router
+  Render)
 - Grafo de correlação de ativos (domínio → subdomínio → IP → tecnologia
   → CVE)
 - Catálogo de reconhecimento de rede ativo (varredura de porta,
   inspeção TLS profunda)
+- Paralelizar `browser_fingerprint` entre hosts via `--max-workers`
+  (hoje roda sequencialmente numa única instância de Chromium)
 
 ---
 

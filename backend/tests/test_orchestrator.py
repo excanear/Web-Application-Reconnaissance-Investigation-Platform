@@ -762,6 +762,98 @@ def test_run_scan_merges_cve_validation_finding_into_the_matching_cve_finding():
     assert validation_rows == []
 
 
+def test_run_scan_accumulates_validated_by_when_two_tools_confirm_the_same_cve():
+    """nuclei_validation and msf_validation are independent active
+    confirmation engines that can both run against the same CVE -- the
+    second validator's merge must not erase the first tool's evidence,
+    and both tool names must survive in validated_by."""
+
+    class _CveProducingModuleForMultiTool(ReconModule):
+        name = "_test_cve_producing_module_for_multi_tool"
+        run_order = 90
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve",
+                    value="CVE-2021-23017",
+                    data={"host": "tech.example.com", "status": "suspected"},
+                )
+            ]
+
+    class _NucleiLikeValidationModule(ReconModule):
+        name = "_test_nuclei_like_validation_module"
+        run_order = 95
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve_validation",
+                    value="CVE-2021-23017",
+                    data={
+                        "host": "tech.example.com",
+                        "status": "confirmed",
+                        "tool": "nuclei",
+                        "nuclei_template_id": "CVE-2021-23017",
+                        "confirmation_note_en": "Confirmed via nuclei.",
+                    },
+                )
+            ]
+
+    class _MsfLikeValidationModule(ReconModule):
+        name = "_test_msf_like_validation_module"
+        run_order = 96
+
+        def run(self, target, context):
+            return [
+                Finding(
+                    type="cve_validation",
+                    value="CVE-2021-23017",
+                    data={
+                        "host": "tech.example.com",
+                        "status": "confirmed",
+                        "tool": "metasploit",
+                        "msf_module": "exploit/multi/http/example",
+                        "msf_confirmation_note_en": "Confirmed via Metasploit.",
+                    },
+                )
+            ]
+
+    scan_id = _create_authorized_project_and_scan()
+    try:
+        register_module(_CveProducingModuleForMultiTool)
+        register_module(_NucleiLikeValidationModule)
+        register_module(_MsfLikeValidationModule)
+        with _mock_all_modules(
+            exclude={
+                _CveProducingModuleForMultiTool.name,
+                _NucleiLikeValidationModule.name,
+                _MsfLikeValidationModule.name,
+            }
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_CveProducingModuleForMultiTool.name]
+        del MODULE_REGISTRY[_NucleiLikeValidationModule.name]
+        del MODULE_REGISTRY[_MsfLikeValidationModule.name]
+
+    db = SessionLocal()
+    try:
+        cve_rows = db.query(models.Finding).filter_by(scan_id=scan_id, type="cve").all()
+    finally:
+        db.close()
+
+    assert len(cve_rows) == 1
+    data = cve_rows[0].data
+    assert data["status"] == "confirmed"
+    assert set(data["validated_by"]) == {"nuclei", "metasploit"}
+    # Both tools' own evidence keys survive the second tool's merge.
+    assert data["nuclei_template_id"] == "CVE-2021-23017"
+    assert data["confirmation_note_en"] == "Confirmed via nuclei."
+    assert data["msf_module"] == "exploit/multi/http/example"
+    assert data["msf_confirmation_note_en"] == "Confirmed via Metasploit."
+
+
 def test_epss_score_and_remediation_survive_into_report_data_and_all_renderers(tmp_path):
     """Exercises the full real pipeline: a cve Finding carrying an epss_score
     (what cve_correlation + fetch_epss would produce) gets merged, via the

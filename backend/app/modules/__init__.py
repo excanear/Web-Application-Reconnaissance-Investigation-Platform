@@ -8,7 +8,9 @@ from app.modules import (  # noqa: F401
     permutation,
     httpx_probe,
     tech_fingerprint,
+    browser_fingerprint,
     whois_module,
     cve_correlation,
     nuclei_validation,
+    msf_validation,
 )

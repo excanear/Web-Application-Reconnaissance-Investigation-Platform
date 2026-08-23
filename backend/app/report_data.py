@@ -56,11 +56,27 @@ def _resolve_remediation(data: dict, technology: str, lang: str) -> str:
     return i18n.t("remediation_generic", lang=lang, technology=technology)
 
 
+def _resolve_evidence(data: dict, lang: str) -> str:
+    """Joins the confirmation evidence from every validator that
+    confirmed this CVE (nuclei_validation writes confirmation_note_*,
+    msf_validation writes msf_confirmation_note_*) -- a CVE confirmed by
+    more than one tool keeps every tool's note instead of only the last
+    validator to run."""
+    notes = []
+    nuclei_note = data.get(f"confirmation_note_{lang}") or data.get("confirmation_note_en")
+    if nuclei_note:
+        notes.append(nuclei_note)
+    msf_note = data.get(f"msf_confirmation_note_{lang}") or data.get("msf_confirmation_note_en")
+    if msf_note:
+        notes.append(msf_note)
+    return " | ".join(notes) if notes else "-"
+
+
 def _cve_row(finding, lang: str) -> CveRow:
     data = finding.data
     technology = f"{data.get('matched_technology', '')} {data.get('matched_technology_version', '')}".strip()
     description, translated = _resolve_description(data, lang)
-    evidence = data.get(f"confirmation_note_{lang}") or data.get("confirmation_note_en", "") or "-"
+    evidence = _resolve_evidence(data, lang)
     return CveRow(
         cve_id=finding.value,
         severity=str(data.get("severity") or ""),
