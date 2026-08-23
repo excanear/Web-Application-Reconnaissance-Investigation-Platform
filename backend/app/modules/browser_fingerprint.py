@@ -3,7 +3,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
 from app import wappalyzer
-from app.modules.base import Finding, ReconModule, register_module
+from app.modules.base import Finding, ReconModule, prioritized_hosts, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
 from app.scope import is_in_scope
 
@@ -71,7 +71,7 @@ class BrowserFingerprintModule(ReconModule):
     is_active = True
 
     def run(self, target: str, context: dict) -> list[Finding]:
-        hosts = sorted(context.get("subdomains", set()) | {target})
+        hosts = prioritized_hosts(context, target)
         scope = context.get("scope")
         audit = context.get("audit")
         limiter = RateLimiter(context.get("rate_limit", DEFAULT_RATE_LIMIT))

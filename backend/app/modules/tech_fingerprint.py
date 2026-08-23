@@ -6,7 +6,7 @@ import requests
 
 from app import wappalyzer
 from app.audit import AuditLog
-from app.modules.base import Finding, ReconModule, register_module
+from app.modules.base import Finding, ReconModule, prioritized_hosts, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
 from app.scope import is_in_scope
 
@@ -34,7 +34,7 @@ class TechFingerprintModule(ReconModule):
     is_active = True
 
     def run(self, target: str, context: dict) -> list[Finding]:
-        hosts = sorted(context.get("subdomains", set()) | {target})
+        hosts = prioritized_hosts(context, target)
         scope = context.get("scope")
         audit = context.get("audit")
         max_workers = context.get("max_workers", DEFAULT_MAX_WORKERS)

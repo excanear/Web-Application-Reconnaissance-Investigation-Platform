@@ -39,6 +39,32 @@ class ReconModule(ABC):
         ...
 
 
+def prioritized_hosts(context: dict, target: str) -> list[str]:
+    """Every host a per-host active module (cloud_range, tech_fingerprint,
+    browser_fingerprint) should probe -- confirmed discoveries
+    (crtsh/subfinder/...) and the target itself, ordered before
+    subdomain_permutation's unconfirmed guesses.
+
+    subdomain_permutation can generate far more guessed candidates than
+    real ones ever discovered, and most never resolve. A plain
+    alphabetical sort of the combined set interleaves guesses with real
+    hosts -- since "-" sorts before "." in ASCII, a permutation guess
+    like "admin-foo.example.com" sorts before the real "foo.example.com"
+    it was guessed from. A module's circuit breaker can then exhaust on
+    a run of dead guesses before ever reaching a confirmed, live host,
+    silently zeroing out that module's results for a real target. This
+    orders confirmed hosts first so the breaker never starves them.
+
+    context["confirmed_subdomains"] is populated by the orchestrator
+    from every subdomain Finding NOT sourced from subdomain_permutation;
+    it's absent (treated as empty) when a module is invoked directly in
+    a unit test outside the orchestrator."""
+    subdomains = context.get("subdomains", set())
+    confirmed = context.get("confirmed_subdomains", set()) | {target}
+    guessed_only = subdomains - confirmed
+    return sorted(confirmed) + sorted(guessed_only)
+
+
 MODULE_REGISTRY: dict[str, type[ReconModule]] = {}
 
 

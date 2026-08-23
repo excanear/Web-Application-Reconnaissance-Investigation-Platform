@@ -51,6 +51,7 @@ def run_scan(
         target = scan.project.target
         context: dict = {
             "subdomains": set(),
+            "confirmed_subdomains": set(),
             "technologies": [],
             "cve_findings": [],
             "rate_limit": rate_limit,
@@ -106,6 +107,8 @@ def run_scan(
 
                     if is_in_scope(finding.value, None, context["scope"]):
                         context["subdomains"].add(finding.value)
+                        if module.name != "subdomain_permutation":
+                            context["confirmed_subdomains"].add(finding.value)
                     else:
                         if finding.value not in recorded_out_of_scope_subdomains:
                             _persist(

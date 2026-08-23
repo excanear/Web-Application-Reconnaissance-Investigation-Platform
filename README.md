@@ -12,7 +12,7 @@ para manter no ar.
 
 [![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Interface](https://img.shields.io/badge/interface-CLI-1a1a1a?style=for-the-badge)](#referência-de-comandos)
-[![Testes](https://img.shields.io/badge/testes-285%20passando-2ea44f?style=for-the-badge)](#testes)
+[![Testes](https://img.shields.io/badge/testes-290%20passando-2ea44f?style=for-the-badge)](#testes)
 [![Licença](https://img.shields.io/badge/licença-MIT-3178c6?style=for-the-badge)](LICENSE)
 [![Uso autorizado](https://img.shields.io/badge/uso-somente%20autorizado-b3261e?style=for-the-badge)](#autorização-e-uso-responsável)
 
@@ -751,6 +751,21 @@ restantes são descartados sem sondar. Reproduzido com a captura real de
 24.948 linhas do incidente: sem o teto, o scan travava; com ele, conclui
 em segundos com exatamente 1.000 subdomínios persistidos.
 
+**Hosts confirmados são sondados antes dos adivinhados por
+permutação.** `cloud_range`, `tech_fingerprint` e `browser_fingerprint`
+processam os hosts confirmados por descoberta real (`crtsh`,
+`subfinder`) e o próprio alvo **antes** dos candidatos que só o
+`subdomain_permutation` adivinhou — outro incidente real: como `-`
+ordena antes de `.` em ASCII, um palpite tipo
+`admin-amy.artssystem.com.br` ordenava alfabeticamente *antes* do
+`amy.artssystem.com.br` de verdade de onde ele foi adivinhado. Um scan
+real contra um alvo com 7 subdomínios confirmados vivos (via
+`httpx_probe`) zerava tecnologias e CVEs porque o circuit breaker
+esgotava nos primeiros 5 palpites `admin-*` inexistentes antes de
+sequer tentar um host real. Corrigido: com a mesma priorização, o
+mesmo alvo passou de **0 para 48 tecnologias e 164 CVEs correlacionadas**
+no primeiro scan após a correção.
+
 ### Ver histórico
 
 ```bash
@@ -1011,7 +1026,7 @@ cd backend
 pytest -v
 ```
 
-**285 testes**, cobrindo cada módulo isoladamente (mockando chamadas
+**290 testes**, cobrindo cada módulo isoladamente (mockando chamadas
 externas, incluindo o Playwright do `browser_fingerprint` e o
 `msfconsole` do `msf_validation`), o orquestrador (isolamento de falha
 por módulo, ordenação por `run_order`, propagação de contexto,

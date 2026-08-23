@@ -29,6 +29,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Claude Code (personal/local overrides)
+.claude/settings.local.json
+
 # IDE
 .vscode/
 .idea/

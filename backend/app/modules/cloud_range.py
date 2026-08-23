@@ -2,7 +2,7 @@ import ipaddress
 import socket
 from concurrent.futures import ThreadPoolExecutor
 
-from app.modules.base import Finding, ReconModule, register_module
+from app.modules.base import Finding, ReconModule, prioritized_hosts, register_module
 from app.ratelimit import CircuitBreaker, RateLimiter
 from app.scope import is_in_scope
 
@@ -28,7 +28,7 @@ class CloudRangeModule(ReconModule):
     name = "cloud_range"
 
     def run(self, target: str, context: dict) -> list[Finding]:
-        hosts = sorted(context.get("subdomains", set()) | {target})
+        hosts = prioritized_hosts(context, target)
         scope = context.get("scope")
         audit = context.get("audit")
         max_workers = context.get("max_workers", DEFAULT_MAX_WORKERS)

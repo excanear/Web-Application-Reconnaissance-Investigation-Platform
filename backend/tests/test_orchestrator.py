@@ -283,6 +283,77 @@ def test_run_scan_uses_default_max_workers_when_not_specified():
     assert seen_context == {"max_workers": 1}
 
 
+def test_run_scan_tracks_confirmed_subdomains_separately_from_permutation_guesses():
+    # confirmed_subdomains feeds app.modules.base.prioritized_hosts, which
+    # cloud_range/tech_fingerprint/browser_fingerprint use to try real
+    # discoveries before subdomain_permutation's unconfirmed guesses --
+    # this is the orchestrator half of that fix: only a non-permutation
+    # module's subdomain Finding should land in confirmed_subdomains.
+    class _RealDiscoveryModule(ReconModule):
+        name = "_test_real_discovery_module"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="real.example.com")]
+
+    class _FakePermutationModule(ReconModule):
+        name = "subdomain_permutation"
+        run_order = 10
+
+        def run(self, target, context):
+            return [Finding(type="subdomain", value="guessed.example.com")]
+
+    class _LateContextCapturingModule(ReconModule):
+        name = "_test_late_context_capturing_module_for_confirmed"
+        run_order = 90
+
+        def run(self, target, context):
+            type(self).seen_subdomains = set(context.get("subdomains", set()))
+            type(self).seen_confirmed = set(context.get("confirmed_subdomains", set()))
+            return []
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="Confirmed Subdomains Co",
+            target="example.com",
+            scope_notes="real and guessed both in scope",
+            authorized=True,
+            scope={"include": ["example.com", "real.example.com", "guessed.example.com"], "exclude": []},
+        )
+        db.add(project)
+        db.commit()
+        scan = models.Scan(project_id=project.id, status="pending")
+        db.add(scan)
+        db.commit()
+        scan_id = scan.id
+    finally:
+        db.close()
+
+    try:
+        register_module(_RealDiscoveryModule)
+        del MODULE_REGISTRY["subdomain_permutation"]
+        register_module(_FakePermutationModule)
+        register_module(_LateContextCapturingModule)
+        with _mock_all_modules(
+            exclude={
+                _RealDiscoveryModule.name,
+                _FakePermutationModule.name,
+                _LateContextCapturingModule.name,
+            }
+        ):
+            run_scan(scan_id)
+    finally:
+        del MODULE_REGISTRY[_RealDiscoveryModule.name]
+        del MODULE_REGISTRY["subdomain_permutation"]
+        del MODULE_REGISTRY[_LateContextCapturingModule.name]
+
+    assert _LateContextCapturingModule.seen_subdomains == {
+        "real.example.com", "guessed.example.com",
+    }
+    assert _LateContextCapturingModule.seen_confirmed == {"real.example.com"}
+
+
 def test_run_scan_filters_out_of_scope_subdomains_before_later_modules_see_them():
     seen_subdomains = []
 
