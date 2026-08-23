@@ -370,7 +370,12 @@ def report(
         except OSError as exc:
             console.print(f"[red]{i18n.t('error_prefix')}[/red] {i18n.t('report_pdf_write_failed', error=str(exc))}")
             raise typer.Exit(code=1)
-        console.print(i18n.t("report_pdf_saved", path=path))
+        # highlight=False: Rich's automatic highlighter wraps bare number
+        # sequences in a printed string with ANSI codes (e.g. a numeric
+        # temp-dir segment in the path), which is desirable for
+        # interactive use but corrupts any exact-substring check
+        # (tooling, tests) against the printed path.
+        console.print(i18n.t("report_pdf_saved", path=path), highlight=False)
 
 
 @app.command()

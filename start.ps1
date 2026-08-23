@@ -26,19 +26,22 @@ if (-not (Test-Path $VenvPython)) {
     }
 }
 
+# Everything from here on (venv activation, pip install, and every
+# `webscan` invocation) runs from backend\ on purpose: the app's sqlite
+# database path is relative to the current directory
+# (DATABASE_URL defaults to sqlite:///./dev.db), so running `webscan`
+# from anywhere else creates a second, empty database there instead of
+# using the one the rest of the tutorial/docs assume.
+Set-Location $BackendDir
+
 Log "Activating the virtualenv..."
 . $VenvActivate
 
 $webscanInstalled = $null -ne (Get-Command webscan -ErrorAction SilentlyContinue)
 if (-not $webscanInstalled) {
     Log "Installing the webscan package (first run)..."
-    Push-Location $BackendDir
-    try {
-        python -m pip install --quiet --upgrade pip
-        python -m pip install --quiet -e .
-    } finally {
-        Pop-Location
-    }
+    python -m pip install --quiet --upgrade pip
+    python -m pip install --quiet -e .
 }
 
 Log "Checking external tools (subfinder, httpx, nuclei, nmap, msfconsole, testssl.sh)..."

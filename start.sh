@@ -19,13 +19,22 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
   (cd "$BACKEND_DIR" && python3 -m venv venv)
 fi
 
+# Everything from here on (venv activation, pip install, and every
+# `webscan` invocation) runs from backend/ on purpose: the app's sqlite
+# database path is relative to the current directory (DATABASE_URL
+# defaults to sqlite:///./dev.db), so running `webscan` from anywhere
+# else creates a second, empty database there instead of using the one
+# the rest of the tutorial/docs assume.
+cd "$BACKEND_DIR"
+
 log "Activating the virtualenv..."
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
 if ! command -v webscan >/dev/null 2>&1; then
   log "Installing the webscan package (first run)..."
-  (cd "$BACKEND_DIR" && python -m pip install --quiet --upgrade pip && python -m pip install --quiet -e .)
+  python -m pip install --quiet --upgrade pip
+  python -m pip install --quiet -e .
 fi
 
 log "Checking external tools (subfinder, httpx, nuclei, msfconsole, nmap, testssl.sh)..."
