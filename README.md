@@ -1,7 +1,5 @@
 <div align="center">
 
-# FECEG PROJECT
-
 # Web Application Reconnaissance &amp; Investigation Platform
 
 ### Aponte para um domínio. Receba a tecnologia exata, a versão exata, e CVEs reais.
